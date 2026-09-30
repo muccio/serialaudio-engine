@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/schema.json",
+  "productName": "SerialAudio Engine",
+  "version": "0.1.0",
+  "identifier": "com.serialaudio.app",
+  "build": {
+    "beforeDevCommand": "npm --prefix ../src-ui run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm --prefix ../src-ui run build",
+    "frontendDist": "../src-ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "SerialAudio Engine — Algorithmic Audio Workstation",
+        "width": 1280,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 650,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}
