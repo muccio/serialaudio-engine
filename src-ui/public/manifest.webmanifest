@@ -1,0 +1,16 @@
+{
+  "name": "SerialAudio Engine",
+  "short_name": "SerialAudio",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0c10",
+  "theme_color": "#6366f1",
+  "description": "Algorithmic audio workstation for stem separation, MIR transient slicing, and dodecaphonic DSP transformations",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

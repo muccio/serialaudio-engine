@@ -4,6 +4,7 @@ import { AudioIngest } from './components/AudioIngest';
 import { WaveformViewer } from './components/WaveformViewer';
 import { SerialMatrixViewer } from './components/SerialMatrixViewer';
 import { TimelineCanvas } from './components/TimelineCanvas';
+import { WorkflowGuide } from './components/WorkflowGuide';
 import { api } from './services/api';
 import {
   AudioSliceMetadata,
@@ -90,7 +91,7 @@ export default function App() {
 
   // Update matrix data when active stem changes or when slices update
   useEffect(() => {
-    if (sessionId && activeStemForMatrix && slices[activeStemForMatrix]?.length >= 12) {
+    if (sessionId && activeStemForMatrix && slices[activeStemForMatrix]?.length > 0) {
       api.getMatrix(sessionId, activeStemForMatrix)
         .then(setMatrixData)
         .catch((err) => console.error('Matrix load error:', err));
@@ -211,6 +212,18 @@ export default function App() {
     }
   };
 
+  const handleSelectStemForMatrix = async (stem: string) => {
+    setActiveStemForMatrix(stem);
+    if (sessionId && slices[stem]?.length > 0) {
+      try {
+        const mat = await api.getMatrix(sessionId, stem);
+        setMatrixData(mat);
+      } catch (err: any) {
+        console.error('Matrix error:', err);
+      }
+    }
+  };
+
   const handlePreviewSlice = (slice: AudioSliceMetadata) => {
     if (slice.audio_url) {
       if (previewAudioRef.current) {
@@ -266,6 +279,8 @@ export default function App() {
     window.open(api.getAudioUrl(renderResult.export_url), '_blank');
   };
 
+  const totalSlices = Object.values(slices).reduce((acc, list) => acc + list.length, 0);
+
   return (
     <div className="min-h-screen bg-background text-slate-100 flex flex-col font-sans">
       {/* Hidden Master Audio Element */}
@@ -286,6 +301,16 @@ export default function App() {
 
       {/* Main DAW Workspace Layout */}
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+        {/* Interactive Step-by-Step Workflow Guide & Tutorial Drawer */}
+        <WorkflowGuide
+          hasStems={Object.keys(stems).length > 0}
+          hasSlices={totalSlices > 0}
+          hasMatrix={matrixData !== null}
+          hasMaster={renderResult !== null}
+          activeStemForMatrix={activeStemForMatrix}
+          totalSlices={totalSlices}
+        />
+
         {/* Module 1: Ingestion & Stem Separation */}
         <AudioIngest
           onFileUpload={handleFileUpload}
@@ -295,7 +320,7 @@ export default function App() {
           progress={progress}
           hasAudio={!!sessionId}
           hasStems={Object.keys(stems).length > 0}
-          hasSlices={Object.keys(slices).length > 0}
+          hasSlices={totalSlices > 0}
           stemCount={Object.keys(stems).length}
         />
 
@@ -304,7 +329,7 @@ export default function App() {
           stems={stems}
           slices={slices}
           activeStemForMatrix={activeStemForMatrix}
-          onSelectStemForMatrix={(s) => setActiveStemForMatrix(s)}
+          onSelectStemForMatrix={handleSelectStemForMatrix}
           onPreviewSlice={handlePreviewSlice}
         />
 
@@ -317,8 +342,6 @@ export default function App() {
           onChangeRow={setActiveRow}
           reverseBuffers={reverseBuffers}
           onToggleReverseBuffers={() => setReverseBuffers(!reverseBuffers)}
-          onPreviewRow={() => {}}
-          isPlayingPreview={false}
         />
 
         {/* Module 4: Timeline Automation & Density Mixdown Generator */}

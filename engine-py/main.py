@@ -114,6 +114,22 @@ class RenderRequest(BaseModel):
 def health():
     return {"status": "ok", "engine": "SerialAudio Python 3.11 DSP"}
 
+@app.get("/favicon.ico")
+def favicon():
+    from fastapi.responses import Response
+    return Response(status_code=204)
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return {
+        "name": "SerialAudio Engine",
+        "short_name": "SerialAudio",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#0b0c10",
+        "theme_color": "#6366f1"
+    }
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
