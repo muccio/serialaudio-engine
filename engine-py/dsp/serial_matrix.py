@@ -12,8 +12,23 @@ class DodecaphonicMatrix:
     """Computes and manages the 12x12 dodecaphonic permutation matrix for audio slices."""
     
     def __init__(self, slices: List[AudioSlice]):
-        if len(slices) < 12:
-            # Pad with repeated slices or silence if less than 12
+        if not slices:
+            # Fallback to 12 chromatic event placeholders if no slices detected
+            self.prime_row = [
+                AudioSlice(
+                    id=f"synth_{i:02d}",
+                    stem_source="synth",
+                    timestamp_start=i * 0.1,
+                    duration=0.1,
+                    spectral_centroid=440.0 * (2.0 ** ((i - 9) / 12.0)),
+                    estimated_pitch_hz=440.0 * (2.0 ** ((i - 9) / 12.0)),
+                    pitch_semitone=float(60 + i),
+                    buffer=np.zeros(4410, dtype=np.float32)
+                )
+                for i in range(12)
+            ]
+        elif len(slices) < 12:
+            # Pad with repeated slices to form a complete 12-tone row
             needed = 12 - len(slices)
             padded = list(slices)
             for i in range(needed):

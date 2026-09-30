@@ -89,14 +89,18 @@ export default function App() {
     };
   }, []);
 
-  // Update matrix data when active stem changes or when slices update
+  const totalSlices = Object.values(slices).reduce((acc, list) => acc + list.length, 0);
+
+  // Update matrix data when active stem changes or when stems/slices update
   useEffect(() => {
-    if (sessionId && activeStemForMatrix && slices[activeStemForMatrix]?.length > 0) {
-      api.getMatrix(sessionId, activeStemForMatrix)
-        .then(setMatrixData)
-        .catch((err) => console.error('Matrix load error:', err));
+    if (sessionId && activeStemForMatrix) {
+      if (Object.keys(stems).length > 0 || totalSlices > 0) {
+        api.getMatrix(sessionId, activeStemForMatrix)
+          .then(setMatrixData)
+          .catch((err) => console.error('Matrix load error:', err));
+      }
     }
-  }, [sessionId, activeStemForMatrix, slices]);
+  }, [sessionId, activeStemForMatrix, totalSlices, stems]);
 
   // Audio playhead sync
   useEffect(() => {
@@ -214,13 +218,51 @@ export default function App() {
 
   const handleSelectStemForMatrix = async (stem: string) => {
     setActiveStemForMatrix(stem);
-    if (sessionId && slices[stem]?.length > 0) {
+    if (sessionId) {
       try {
+        setIsProcessing(true);
         const mat = await api.getMatrix(sessionId, stem);
         setMatrixData(mat);
+        setIsProcessing(false);
       } catch (err: any) {
         console.error('Matrix error:', err);
+        setIsProcessing(false);
       }
+    }
+  };
+
+  const handleForceGenerateMatrix = async () => {
+    try {
+      setIsProcessing(true);
+      let currentSessionId = sessionId;
+      if (!currentSessionId) {
+        setProgress({ session_id: '', progress: 0.1, stage: 'demo', message: "Inizializzazione demo orchestrale..." });
+        const demo = await api.generateDemo(8.0);
+        currentSessionId = demo.session_id;
+        setSessionId(demo.session_id);
+        setStems(demo.stems);
+      }
+
+      if (totalSlices === 0) {
+        setProgress({ session_id: currentSessionId, progress: 0.4, stage: 'slicing', message: 'Rilevamento transienti per generazione matrice...' });
+        const sliceRes = await api.sliceEvents({
+          sessionId: currentSessionId,
+          method: 'spectral_flux',
+          threshold: 0.2,
+          minDurationMs: 50,
+          maxDurationMs: 1200,
+          crossfadeMs: 5
+        });
+        setSlices(sliceRes.slices);
+      }
+
+      const stemToUse = activeStemForMatrix || 'other';
+      const mat = await api.getMatrix(currentSessionId, stemToUse);
+      setMatrixData(mat);
+      setIsProcessing(false);
+    } catch (err: any) {
+      alert(`Errore generazione matrice: ${err.message}`);
+      setIsProcessing(false);
     }
   };
 
@@ -278,8 +320,6 @@ export default function App() {
     if (!renderResult || !sessionId) return;
     window.open(api.getAudioUrl(renderResult.export_url), '_blank');
   };
-
-  const totalSlices = Object.values(slices).reduce((acc, list) => acc + list.length, 0);
 
   return (
     <div className="min-h-screen bg-background text-slate-100 flex flex-col font-sans">
@@ -342,6 +382,13 @@ export default function App() {
           onChangeRow={setActiveRow}
           reverseBuffers={reverseBuffers}
           onToggleReverseBuffers={() => setReverseBuffers(!reverseBuffers)}
+          activeStem={activeStemForMatrix}
+          onSelectStem={handleSelectStemForMatrix}
+          availableStems={Object.keys(stems).length > 0 ? Object.keys(stems) : ['drums', 'bass', 'other', 'vocals']}
+          slicesCountByStem={Object.fromEntries(
+            (Object.keys(stems).length > 0 ? Object.keys(stems) : ['drums', 'bass', 'other', 'vocals']).map(k => [k, slices[k]?.length || 0])
+          )}
+          onForceGenerateMatrix={handleForceGenerateMatrix}
         />
 
         {/* Module 4: Timeline Automation & Density Mixdown Generator */}

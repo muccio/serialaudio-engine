@@ -66,14 +66,29 @@ sessions: Dict[str, Dict] = {}
 def get_or_create_session(session_id: Optional[str] = None) -> str:
     if not session_id:
         session_id = f"sess_{uuid.uuid4().hex[:10]}"
+    sess_dir = CACHE_DIR / session_id
+    sess_dir.mkdir(parents=True, exist_ok=True)
     if session_id not in sessions:
-        sess_dir = CACHE_DIR / session_id
-        sess_dir.mkdir(parents=True, exist_ok=True)
+        # Rehydrate existing disk stems if session was created earlier
+        stems_dir = sess_dir / "stems"
+        stems = {}
+        if stems_dir.exists():
+            for s in ["drums", "bass", "other", "vocals"]:
+                p = stems_dir / f"{s}.wav"
+                if p.exists() and p.stat().st_size > 0:
+                    stems[s] = p
+
+        mix_path = None
+        for p in sess_dir.glob("*.wav"):
+            if "master" not in p.name:
+                mix_path = p
+                break
+
         sessions[session_id] = {
             "session_id": session_id,
             "dir": sess_dir,
-            "mix_path": None,
-            "stems": {},
+            "mix_path": mix_path,
+            "stems": stems,
             "slices": {},
             "matrices": {},
             "master_path": None
@@ -322,22 +337,53 @@ async def slice_events(req: SliceRequest):
 async def get_serial_matrix(req: MatrixRequest):
     session_id = req.session_id
     if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
+        sess_dir = CACHE_DIR / session_id
+        if sess_dir.exists():
+            get_or_create_session(session_id)
+        else:
+            raise HTTPException(status_code=404, detail="Session not found")
         
     sess = sessions[session_id]
     stem = req.stem
-    if stem not in sess["matrices"]:
+    if stem not in sess["matrices"] or not sess["matrices"][stem]:
+        # 1. Use existing in-memory slices for this stem
         if stem in sess["slices"] and sess["slices"][stem]:
             sess["matrices"][stem] = DodecaphonicMatrix(sess["slices"][stem])
         else:
-            raise HTTPException(status_code=400, detail=f"No slices available for stem '{stem}'")
+            # 2. Check if stem audio exists on disk and slice it
+            stem_file = sess["dir"] / "stems" / f"{stem}.wav"
+            if stem_file.exists():
+                detector = OnsetDetector()
+                detected = detector.detect_and_slice(stem_file, stem_source=stem)
+                sess["slices"][stem] = detected
+                sess["matrices"][stem] = DodecaphonicMatrix(detected)
+            else:
+                # 3. Check if any other stem has slices
+                any_stem_slices = next((v for v in sess["slices"].values() if v), None)
+                if any_stem_slices:
+                    sess["matrices"][stem] = DodecaphonicMatrix(any_stem_slices)
+                else:
+                    # 4. Fallback to default chromatic series so Step 3 always displays
+                    sess["matrices"][stem] = DodecaphonicMatrix([])
 
     mat_obj: DodecaphonicMatrix = sess["matrices"][stem]
     meta = mat_obj.get_matrix_metadata()
     
-    # Add audio_url to prime row
+    # Add audio_url to prime row and ensure preview audio file exists
     for item in meta["prime_row"]:
-        item["audio_url"] = f"/api/audio/{session_id}/slices/{stem}/{item['id']}.wav"
+        actual_stem = item.get("stem_source") or stem
+        stem_dir = sess["dir"] / "slices" / actual_stem
+        stem_dir.mkdir(parents=True, exist_ok=True)
+        slice_wav = stem_dir / f"{item['id']}.wav"
+        if not slice_wav.exists():
+            freq = item.get("estimated_pitch_hz") or 440.0
+            t = np.linspace(0, 0.2, int(0.2 * 44100), endpoint=False)
+            tone = 0.3 * np.sin(2 * np.pi * freq * t)
+            fade_len = int(0.01 * 44100)
+            tone[:fade_len] *= np.linspace(0, 1, fade_len)
+            tone[-fade_len:] *= np.linspace(1, 0, fade_len)
+            sf.write(str(slice_wav), tone.astype(np.float32), 44100, subtype='PCM_16')
+        item["audio_url"] = f"/api/audio/{session_id}/slices/{actual_stem}/{item['id']}.wav"
         
     return {
         "session_id": session_id,
