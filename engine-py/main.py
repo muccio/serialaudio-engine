@@ -1,16 +1,19 @@
 """FastAPI & WebSocket IPC service for SerialAudio Engine."""
 import asyncio
+import io
+import json
 import logging
 import os
 import shutil
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
 import soundfile as sf
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from dsp.demucs_pipeline import DemucsPipeline
@@ -475,6 +478,175 @@ async def export_master(session_id: str):
         str(master_path),
         media_type="audio/wav",
         filename="serialaudio_master.wav"
+    )
+
+# --- Intermediate Products Download Endpoints ---
+
+@app.get("/api/download/stem/{session_id}/{stem}")
+async def download_single_stem(session_id: str, stem: str):
+    sess_dir = CACHE_DIR / session_id
+    if not sess_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    stem_file = sess_dir / "stems" / f"{stem}.wav"
+    if not stem_file.exists():
+        raise HTTPException(status_code=404, detail=f"Stem '{stem}' not found")
+    return FileResponse(
+        str(stem_file),
+        media_type="audio/wav",
+        filename=f"{stem}_{session_id[:8]}.wav"
+    )
+
+@app.get("/api/download/stems-zip/{session_id}")
+async def download_stems_zip(session_id: str):
+    sess_dir = CACHE_DIR / session_id
+    if not sess_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    stems_dir = sess_dir / "stems"
+    if not stems_dir.exists() or not any(stems_dir.glob("*.wav")):
+        raise HTTPException(status_code=404, detail="No stems found in session")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for stem_file in sorted(stems_dir.glob("*.wav")):
+            zf.write(stem_file, arcname=f"stems/{stem_file.name}")
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="serialaudio_stems_{session_id[:8]}.zip"'}
+    )
+
+@app.get("/api/download/slices-zip/{session_id}")
+async def download_slices_zip(session_id: str, stem: Optional[str] = None):
+    sess_dir = CACHE_DIR / session_id
+    if not sess_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    slices_dir = sess_dir / "slices"
+    if not slices_dir.exists():
+        raise HTTPException(status_code=404, detail="No slices found in session")
+
+    sess = sessions.get(session_id, {})
+    slices_map = sess.get("slices", {})
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        csv_rows = ["id,stem,timestamp_start,duration,pitch_hz,pitch_semitone,spectral_centroid"]
+        meta_dict = {}
+
+        stem_dirs = [slices_dir / stem] if (stem and (slices_dir / stem).exists()) else sorted(slices_dir.iterdir())
+        for sdir in stem_dirs:
+            if not sdir.is_dir():
+                continue
+            stem_name = sdir.name
+            meta_dict[stem_name] = []
+            for wav_file in sorted(sdir.glob("*.wav")):
+                zf.write(wav_file, arcname=f"slices/{stem_name}/{wav_file.name}")
+                matching_slice = None
+                if stem_name in slices_map:
+                    matching_slice = next((s for s in slices_map[stem_name] if s.id == wav_file.stem), None)
+
+                if matching_slice:
+                    d = matching_slice.to_dict()
+                    meta_dict[stem_name].append(d)
+                    csv_rows.append(f"{d['id']},{d['stem_source']},{d['timestamp_start']:.3f},{d['duration']:.3f},{d['estimated_pitch_hz']:.1f},{d['pitch_semitone']:.1f},{d['spectral_centroid']:.1f}")
+                else:
+                    csv_rows.append(f"{wav_file.stem},{stem_name},0,0,0,0,0")
+
+        zf.writestr("slices_metadata.json", json.dumps(meta_dict, indent=2))
+        zf.writestr("slices_metadata.csv", "\n".join(csv_rows))
+
+    buf.seek(0)
+    zip_name = f"serialaudio_slices_{stem}_{session_id[:8]}.zip" if stem else f"serialaudio_all_slices_{session_id[:8]}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'}
+    )
+
+@app.get("/api/download/slices-meta/{session_id}")
+async def download_slices_metadata(session_id: str):
+    sess_dir = CACHE_DIR / session_id
+    if not sess_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    sess = sessions.get(session_id, {})
+    slices_map = sess.get("slices", {})
+    meta_dict = {
+        k: [s.to_dict() for s in v]
+        for k, v in slices_map.items()
+    }
+    content = json.dumps(meta_dict, indent=2)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="slices_metadata_{session_id[:8]}.json"'}
+    )
+
+@app.get("/api/download/matrix-json/{session_id}/{stem}")
+async def download_matrix_json(session_id: str, stem: str):
+    sess_dir = CACHE_DIR / session_id
+    if not sess_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    sess = sessions.get(session_id, {})
+    mat_obj = sess.get("matrices", {}).get(stem)
+    if not mat_obj:
+        if stem in sess.get("slices", {}) and sess["slices"][stem]:
+            mat_obj = DodecaphonicMatrix(sess["slices"][stem])
+        else:
+            stem_file = sess_dir / "stems" / f"{stem}.wav"
+            if stem_file.exists():
+                detector = OnsetDetector()
+                det = detector.detect_and_slice(stem_file, stem_source=stem)
+                mat_obj = DodecaphonicMatrix(det)
+            else:
+                mat_obj = DodecaphonicMatrix([])
+        sess.setdefault("matrices", {})[stem] = mat_obj
+
+    meta = mat_obj.get_matrix_metadata()
+    data = {
+        "session_id": session_id,
+        "stem": stem,
+        "pitch_names": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
+        **meta
+    }
+    content = json.dumps(data, indent=2)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="serial_matrix_{stem}_{session_id[:8]}.json"'}
+    )
+
+@app.get("/api/download/raw-mix/{session_id}")
+async def download_raw_mix(session_id: str):
+    sess_dir = CACHE_DIR / session_id
+    if not sess_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    sess = sessions.get(session_id, {})
+    mix_path = sess.get("mix_path")
+    if not mix_path or not Path(mix_path).exists():
+        matches = list(sess_dir.glob("raw/*")) + list(sess_dir.glob("uploaded_mix*")) + list(sess_dir.glob("sebastians_dance*"))
+        if matches:
+            mix_path = matches[0]
+        else:
+            raise HTTPException(status_code=404, detail="Raw mix not found")
+    return FileResponse(
+        str(mix_path),
+        media_type="audio/wav",
+        filename=Path(mix_path).name
+    )
+
+@app.get("/api/download/slice/{session_id}/{stem}/{slice_id}")
+async def download_single_slice(session_id: str, stem: str, slice_id: str):
+    sess_dir = CACHE_DIR / session_id
+    if not sess_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    slice_path = sess_dir / "slices" / stem / f"{slice_id}.wav"
+    if not slice_path.exists():
+        raise HTTPException(status_code=404, detail=f"Slice '{slice_id}' not found")
+    return FileResponse(
+        str(slice_path),
+        media_type="audio/wav",
+        filename=f"{slice_id}.wav"
     )
 
 if __name__ == "__main__":

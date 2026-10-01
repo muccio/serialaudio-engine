@@ -1,8 +1,10 @@
 import { Fragment } from 'react';
-import { Grid, Sparkles, Wand2 } from 'lucide-react';
+import { Archive, FileJson, Grid, Sparkles, Wand2 } from 'lucide-react';
 import { MatrixMetadata, TransformationForm } from '../types';
+import { api } from '../services/api';
 
 interface SerialMatrixViewerProps {
+  sessionId?: string | null;
   matrixData: MatrixMetadata | null;
   activeForm: TransformationForm;
   onChangeForm: (form: TransformationForm) => void;
@@ -27,6 +29,7 @@ const STEM_COLORS: Record<string, { bg: string; text: string; border: string }> 
 };
 
 export function SerialMatrixViewer({
+  sessionId,
   matrixData,
   activeForm,
   onChangeForm,
@@ -102,26 +105,50 @@ export function SerialMatrixViewer({
         </div>
       ) : (
         <>
-          {/* Form Selection Bar: P, R, I, RI */}
+          {/* Form Selection Bar: P, R, I, RI & Download Actions */}
           <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
-            <span className="text-xs font-mono text-slate-400">
-              Forma Seriale Dodecafonica:
-            </span>
-            <div className="flex items-center space-x-1.5 font-mono text-xs">
-              {(['P', 'R', 'I', 'RI'] as TransformationForm[]).map((form) => (
-                <button
-                  key={form}
-                  onClick={() => onChangeForm(form)}
-                  className={`px-3 py-1 rounded transition font-semibold ${
-                    activeForm === form
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/50'
-                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {form} ({form === 'P' ? 'Prime' : form === 'R' ? 'Retrograde' : form === 'I' ? 'Inversion' : 'Retro-Inv'})
-                </button>
-              ))}
+            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+              <span className="text-xs font-mono text-slate-400">
+                Forma Seriale Dodecafonica:
+              </span>
+              <div className="flex items-center space-x-1.5 font-mono text-xs">
+                {(['P', 'R', 'I', 'RI'] as TransformationForm[]).map((form) => (
+                  <button
+                    key={form}
+                    onClick={() => onChangeForm(form)}
+                    className={`px-3 py-1 rounded transition font-semibold ${
+                      activeForm === form
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/50'
+                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {form} ({form === 'P' ? 'Prime' : form === 'R' ? 'Retrograde' : form === 'I' ? 'Inversion' : 'Retro-Inv'})
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {sessionId && (
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => window.open(api.getMatrixJsonDownloadUrl(sessionId, activeStem), '_blank')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition shadow-sm"
+                  title="Esporta la matrice di Babbitt 12x12 e le note come file JSON"
+                >
+                  <FileJson className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Export Matrix (JSON)</span>
+                </button>
+
+                <button
+                  onClick={() => window.open(api.getSlicesZipDownloadUrl(sessionId, activeStem), '_blank')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition shadow-sm"
+                  title={`Scarica le fette dello stem ${activeStem} in archivio ZIP`}
+                >
+                  <Archive className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{activeStem} Slices (ZIP)</span>
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

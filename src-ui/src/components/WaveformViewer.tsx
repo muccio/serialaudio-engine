@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Layers } from 'lucide-react';
+import { Archive, Download, FileJson, Layers } from 'lucide-react';
 import { AudioSliceMetadata } from '../types';
+import { api } from '../services/api';
 
 interface WaveformViewerProps {
+  sessionId?: string | null;
   stems: Record<string, string>;
   slices: Record<string, AudioSliceMetadata[]>;
   activeStemForMatrix: string;
@@ -18,6 +20,7 @@ const STEM_COLORS: Record<string, { base: string; wave: string; border: string; 
 };
 
 export function WaveformViewer({
+  sessionId,
   stems,
   slices,
   activeStemForMatrix,
@@ -147,21 +150,65 @@ export function WaveformViewer({
 
   return (
     <div className="bg-surface border border-surfaceBorder rounded-xl p-5 shadow-lg space-y-4">
-      <div className="flex items-center justify-between pb-3 border-b border-surfaceBorder">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-surfaceBorder">
         <div className="flex items-center space-x-2">
           <Layers className="w-4 h-4 text-cyan-400" />
           <h2 className="font-semibold text-sm tracking-wide uppercase text-slate-200">
             Multi-Track Waveform & Transient Slices
           </h2>
         </div>
-        <div className="flex items-center space-x-3 text-xs font-mono">
-          <span className="text-slate-400">Total Duration: {maxTime.toFixed(2)}s</span>
+
+        <div className="flex items-center space-x-2 text-xs font-mono flex-wrap gap-y-1">
+          {sessionId && stemKeys.length > 0 && (
+            <button
+              onClick={() => window.open(api.getStemsZipDownloadUrl(sessionId), '_blank')}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm"
+              title="Scarica tutti e 4 gli stem (drums, bass, other, vocals) in archivio ZIP"
+            >
+              <Archive className="w-3.5 h-3.5 text-rose-400" />
+              <span>Stems (ZIP)</span>
+            </button>
+          )}
+
+          {sessionId && Object.values(slices).some((l) => l.length > 0) && (
+            <>
+              <button
+                onClick={() => window.open(api.getSlicesZipDownloadUrl(sessionId), '_blank')}
+                className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm"
+                title="Scarica tutte le fette audio (WAV) + metadati JSON/CSV in archivio ZIP"
+              >
+                <Archive className="w-3.5 h-3.5 text-cyan-400" />
+                <span>All Slices (ZIP)</span>
+              </button>
+
+              <button
+                onClick={() => window.open(api.getSlicesMetaDownloadUrl(sessionId), '_blank')}
+                className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm"
+                title="Scarica il file metadati JSON delle fette"
+              >
+                <FileJson className="w-3.5 h-3.5 text-amber-400" />
+                <span>Metadata (JSON)</span>
+              </button>
+            </>
+          )}
+
+          <span className="text-slate-400 text-[11px] pl-1">Duration: {maxTime.toFixed(2)}s</span>
+
           {hoveredSlice && (
-            <div className="bg-slate-900 border border-slate-700 px-2.5 py-0.5 rounded text-indigo-300">
+            <div className="flex items-center space-x-1.5 bg-slate-900 border border-slate-700 px-2.5 py-0.5 rounded text-indigo-300">
               <span>{hoveredSlice.id}</span> &bull; 
               <span> {hoveredSlice.duration.toFixed(3)}s</span> &bull; 
               <span> {hoveredSlice.pitch_semitone > 0 ? `MIDI ${hoveredSlice.pitch_semitone}` : 'Inharmonic'}</span> &bull;
               <span> {hoveredSlice.spectral_centroid} Hz</span>
+              {sessionId && (
+                <button
+                  onClick={() => window.open(api.getSliceDownloadUrl(sessionId, hoveredSlice.stem_source, hoveredSlice.id), '_blank')}
+                  className="p-0.5 hover:text-white text-slate-400 ml-1"
+                  title="Scarica questo singolo slice WAV"
+                >
+                  <Download className="w-3 h-3 text-emerald-400" />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -197,7 +244,29 @@ export function WaveformViewer({
                     </span>
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1.5">
+                    {sessionId && (
+                      <button
+                        onClick={() => window.open(api.getStemDownloadUrl(sessionId, stem), '_blank')}
+                        className="flex items-center space-x-1 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
+                        title={`Scarica ${stem}.wav`}
+                      >
+                        <Download className="w-3 h-3 text-indigo-400" />
+                        <span>WAV</span>
+                      </button>
+                    )}
+
+                    {sessionId && stemSlices.length > 0 && (
+                      <button
+                        onClick={() => window.open(api.getSlicesZipDownloadUrl(sessionId, stem), '_blank')}
+                        className="flex items-center space-x-1 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
+                        title={`Scarica le ${stemSlices.length} fette di ${stem} in ZIP`}
+                      >
+                        <Archive className="w-3 h-3 text-cyan-400" />
+                        <span>ZIP</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={() => onSelectStemForMatrix(stem)}
                       className={`text-[11px] font-mono px-2 py-0.5 rounded transition ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}

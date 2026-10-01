@@ -121,5 +121,34 @@ export const api = {
       }
     };
     return ws;
+  },
+
+  getStemDownloadUrl(sessionId: string, stem: string): string {
+    return `${API_BASE}/api/download/stem/${encodeURIComponent(sessionId)}/${encodeURIComponent(stem)}`;
+  },
+
+  getStemsZipDownloadUrl(sessionId: string): string {
+    return `${API_BASE}/api/download/stems-zip/${encodeURIComponent(sessionId)}`;
+  },
+
+  getSlicesZipDownloadUrl(sessionId: string, stem?: string): string {
+    const q = stem ? `?stem=${encodeURIComponent(stem)}` : '';
+    return `${API_BASE}/api/download/slices-zip/${encodeURIComponent(sessionId)}${q}`;
+  },
+
+  getSlicesMetaDownloadUrl(sessionId: string): string {
+    return `${API_BASE}/api/download/slices-meta/${encodeURIComponent(sessionId)}`;
+  },
+
+  getMatrixJsonDownloadUrl(sessionId: string, stem: string): string {
+    return `${API_BASE}/api/download/matrix-json/${encodeURIComponent(sessionId)}/${encodeURIComponent(stem)}`;
+  },
+
+  getRawMixDownloadUrl(sessionId: string): string {
+    return `${API_BASE}/api/download/raw-mix/${encodeURIComponent(sessionId)}`;
+  },
+
+  getSliceDownloadUrl(sessionId: string, stem: string, sliceId: string): string {
+    return `${API_BASE}/api/download/slice/${encodeURIComponent(sessionId)}/${encodeURIComponent(stem)}/${encodeURIComponent(sliceId)}`;
   }
 };

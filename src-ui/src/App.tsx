@@ -353,6 +353,7 @@ export default function App() {
 
         {/* Module 1: Ingestion & Stem Separation */}
         <AudioIngest
+          sessionId={sessionId}
           onFileUpload={handleFileUpload}
           onLoadDemo={handleLoadDemo}
           onDetectSlices={handleDetectSlices}
@@ -366,6 +367,7 @@ export default function App() {
 
         {/* Module 2: Multi-Track Waveform & Slice Boundary Inspector */}
         <WaveformViewer
+          sessionId={sessionId}
           stems={stems}
           slices={slices}
           activeStemForMatrix={activeStemForMatrix}
@@ -375,6 +377,7 @@ export default function App() {
 
         {/* Module 3: 12-Tone Serial Matrix & DSP Permutations */}
         <SerialMatrixViewer
+          sessionId={sessionId}
           matrixData={matrixData}
           activeForm={activeForm}
           onChangeForm={setActiveForm}

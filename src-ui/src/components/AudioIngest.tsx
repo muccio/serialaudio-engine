@@ -1,8 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { FileAudio, Loader2, Music2, Scissors, Sliders, UploadCloud } from 'lucide-react';
+import { Download, FileAudio, Loader2, Music2, Scissors, Sliders, UploadCloud } from 'lucide-react';
 import { WebSocketProgressPayload } from '../types';
+import { api } from '../services/api';
 
 interface AudioIngestProps {
+  sessionId?: string | null;
   onFileUpload: (file: File) => void;
   onLoadDemo: () => void;
   onDetectSlices: (params: {
@@ -21,6 +23,7 @@ interface AudioIngestProps {
 }
 
 export function AudioIngest({
+  sessionId,
   onFileUpload,
   onLoadDemo,
   onDetectSlices,
@@ -107,7 +110,19 @@ export function AudioIngest({
             </button>
           </div>
           {hasAudio && (
-            <p className="text-[11px] font-mono text-emerald-400">Audio source loaded in session</p>
+            <div className="flex items-center space-x-2 pt-1">
+              <span className="text-[11px] font-mono text-emerald-400">Audio source loaded</span>
+              {sessionId && (
+                <button
+                  onClick={() => window.open(api.getRawMixDownloadUrl(sessionId), '_blank')}
+                  className="flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono transition"
+                  title="Download input audio mix (WAV)"
+                >
+                  <Download className="w-3 h-3 text-indigo-400" />
+                  <span>Download Input WAV</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
 

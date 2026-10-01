@@ -61,79 +61,107 @@ Una volta separati gli stem, essi sono tracce audio continue. Il motore ha bisog
 
 ---
 
-### Step 3: La Matrice Dodecafonica & Le Trasformazioni Seriali
+### Step 3: La Matrice Dodecafonica & Le Trasformazioni Seriali sull'Audio
 
-Una volta estratti i slice, il motore li raggruppa in **righe di 12 eventi** ($S = \{s_0, s_1, \dots, s_{11}\}$).
+Una volta estratti i slice, il motore li organizza matematicamente in una **serie dodecafonica di 12 eventi** ($S = \{s_0, s_1, \dots, s_{11}\}$).
 
-1. **Selezionare lo Stem per la Matrice:**
-   - Nel Waveform Viewer, clicca sul pulsante **`Select for Matrix`** accanto a una delle tracce (es. *Other*, *Bass*, o *Drums*).
-   - Il motore calcola istantaneamente la classica matrice di Babbitt $12 \times 12$ basata sulle classi di altezza (Pitch Classes da $0$ a $11$) dei primi 12 slice.
-2. **Lettura della Matrice:**
-   - La matrice contiene **144 celle** ($12 \times 12$), disposte con le righe Prime a sinistra ($P_0 \dots P_{11}$) e le colonne Inversion in alto ($I_0 \dots I_{11}$).
-   - Ogni cella mostra il Pitch Class ($0 = \text{C}, 1 = \text{C}\sharp, \dots, 11 = \text{B}$).
-3. **Le 4 Forme Seriali Dodecafoniche & Il Mappaggio DSP:**
-   - **P (Prime / Forma Base):** Riproduce la sequenza dei 12 slice in ordine originale ($s_0 \to s_{11}$).
-   - **R (Retrogrado):** Inverte l'ordine temporale della sequenza ($s_{11} \to s_0$).
-     - Se il toggle **`Reverse Audio Buffers`** è attivo, inverte anche la forma d'onda interna di ogni singolo slice nel tempo ($x[-t]$).
-   - **I (Inversione):**
-     - *Per i slice armonici/melodici:* Riflessione speculare degli intervalli rispetto al baricentro di intonazione della serie ($C = \frac{1}{12}\sum semitoni$):
-       $$\Delta st = semitone - C \implies \text{Pitch Shift di } -2 \cdot \Delta st \text{ semitoni}$$
-       La trasposizione viene calcolata ed applicata via phase vocoder di alta qualità.
-     - *Per i slice inarmonici/percussivi (es. Drums):* Viene eseguita un'**inversione spettrale FFT**:
-       $$X_{inv}[k] = X[K - 1 - k]$$
-       le frequenze gravi diventano acute e le acute diventano gravi, ricostruendo la fase con istft.
-   - **RI (Retrogrado Inverso):** Applica contemporaneamente l'inversione degli intervalli e l'inversione dell'ordine temporale dei grani.
-4. **Selezione Trasposizione (Indice 0–11):**
-   - Spostando lo slider dell'indice di riga da $0$ a $11$, puoi selezionare qualsiasi trasposizione della serie.
+#### 1. Come nasce la Serie Fondamentale ($P_0$):
+- Quando selezioni uno stem (es. *Other*, *Bass*, *Drums* o *Vocals*) o premi **"Genera Matrice 12x12"**, il sistema prende i primi 12 slice temporali estratti dall'algoritmo MIR.
+- Per ogni slice viene calcolata l'intonazione stimata $f_0$ in semitoni MIDI (per elementi armonici) o il centroide spettrale (per elementi percussivi).
+- Il pitch viene proiettato nella classe di altezza modulare dodecafonica ($PC \in \{0, 1, \dots, 11\}$ dove $0=\text{C}, 1=\text{C}\sharp, \dots, 11=\text{B}$).
 
----
+#### 2. Costruzione della Matrice di Babbitt $12 \times 12$:
+- La riga superiore è la serie originale $P_0$.
+- La colonna sinistra è l'inversione $I_0$, ottenuta calcolando:
+  $$I_0[i] = (P_0[0] - (P_0[i] - P_0[0])) \pmod{12}$$
+- Ciascuna cella della matrice $(r, c)$ viene calcolata come:
+  $$\text{Cell}[r, c] = (P_0[c] - P_0[0] + I_0[r]) \pmod{12}$$
+- La matrice genera **48 permutazioni seriali canoniche** della composizione:
+  - 12 forme **Prime** ($P_0 \dots P_{11}$)
+  - 12 forme **Retrograde** ($R_0 \dots R_{11}$)
+  - 12 forme **Inversion** ($I_0 \dots I_{11}$)
+  - 12 forme **Retrograde-Inversion** ($RI_0 \dots RI_{11}$)
 
-### Step 4: Timeline & Generatore di Densità ($\lambda(t)$ Events/Sec)
+#### 3. Come la Matrice si traduce in Suono (DSP Engine):
+Quando la timeline riproduce o sintetizza gli eventi, non usa pitch sintetici astratti: **applica le permutazioni matematiche ai buffer audio dei singoli slice**:
 
-La timeline non è una semplice sequenza rigida, ma un **generatore continuo di densità stocastico-seriale**:
-
-1. **Curva di Automazione della Densità:**
-   - Il canvas visualizza il tasso di densità $\lambda(t)$ (da $0.5$ a $16$ eventi al secondo) in funzione del tempo.
-   - Puoi **cliccare ovunque sul grafico** per aggiungere nuovi punti di controllo, oppure **trascinare i nodi esistenti**.
-   - Sono disponibili preset musicali:
-     - *Golden Arch:* Attacco rarefatto, picco di densità al centro, chiusura rarefatta.
-     - *Crescendo:* Crescita continua di densità fino al climax finale.
-     - *Polyrhythmic:* Onde ritmiche alternate.
-2. **Durata Target:**
-   - Regolabile liberamente tramite slider da $5$ a $60$ secondi.
-3. **Stem Balance Weights:**
-   - Sliders per bilanciare la probabilità di estrazione fra i 4 stem:
-     - Drums %
-     - Bass %
-     - Other %
-     - Vocals %
+- **P (Prime):**
+  - Legge la sequenza dei 12 slice da sinistra a destra nella matrice.
+  - La riga selezionata (da $0$ a $11$) determina la trasposizione cromatica di partenza.
+- **R (Retrogrado):**
+  - Legge la sequenza delle fette da destra a sinistra (inversione dell'ordine temporale degli eventi).
+  - Se attivi il comando **`Reverse Audio Buffers (x[-t])`**, ciascun campione PCM all'interno del grano audio viene rovesciato nel tempo (effetto tape reverse psichedelico/concreto).
+- **I (Inversione):**
+  - Legge la colonna della matrice dall'alto in basso.
+  - **Per fette armoniche (melodiche):** Calcola il baricentro di pitch della serie $C = \frac{1}{12}\sum semitoni$. Per ogni slice calcola la distanza $\Delta st = semitone - C$ e applica un pitch shifting con phase vocoder pari a $-2 \cdot \Delta st$. Una melodia ascendente diventa discendente con intervalli speculari identici!
+  - **Per fette inarmoniche (percussioni/batteria):** Esegue un'**Inversione Spettrale FFT**:
+    $$X_{inv}[k] = X[K - 1 - k]$$
+    invertendo l'asse delle frequenze dell'STFT: le frequenze gravi (cassa/sub) salgono ad acuti brillanti e le frequenze acute (piatti/charleston) scendono a toni cupi e scuri!
+- **RI (Retrogrado Inverso):**
+  - Coniuga la lettura temporale inversa e l'inversione spettrale o di intonazione.
 
 ---
 
-### Step 5: Sintesi del Mixdown Master & Esportazione WAV
+### Step 4: Timeline & Generatore di Densità (Nessun Limite di 60 Secondi)
 
-1. **Rendering:**
-   - Clicca su **`Synthesize Mixdown`** nella barra superiore.
-   - Il motore Python:
-     - Integra la densità $\lambda(t)$ nel tempo per calcolare i trigger temporali esatti.
-     - Estrae i grani seguendo ciclicamente la serie seriale trasformata ($P_n, R_n, I_n, \text{o } RI_n$).
-     - Applica il panning stereo a potenza costante.
-     - Somma le tracce in overlap-add.
-     - Applica un limiter soft-knee normalizzatore per prevenire il clipping digitale.
-2. **Audizione:**
-   - Clicca **`Play Master`** per ascoltare la composizione completata. La linea verde della playhead scorrerà lungo il canvas in tempo reale.
-3. **Esportazione:**
-   - Clicca **`Export WAV`** per scaricare direttamente il master WAV a 24-bit (44.1 o 48.0 kHz).
+La timeline non è legata a vincoli prefissati: puoi impostare **qualsiasi durata target** (da 5 secondi a 120s, 300s, 600s o più):
+
+1. **Durata Libera & Senza Limiti:**
+   - Tramite la casella numerica puoi inserire liberamente qualsiasi numero di secondi (es. `15`, `60`, `180`, `300`).
+   - Sono disponibili pulsanti di preset immediati: **`15s`**, **`30s`**, **`60s`**, **`120s`**, **`300s`**.
+   - Lo slider orizzontale si adatta dinamicamente alla durata impostata.
+2. **Curva di Densità $\lambda(t)$ (Eventi/Secondo):**
+   - Disegna sulla tela interattiva il flusso di densità stocastica nel tempo.
+   - Punti di controllo manipolabili con il mouse o con preset grafici (*Golden Arch*, *Crescendo*, *Polyrhythmic*).
+3. **Pesi di Bilanciamento degli Stem:**
+   - Sliders individuali per stabilire la probabilità che a ogni istante venga suonata una fetta di batteria, basso, archi o voce.
 
 ---
 
-## 3. Bug Risolti in questo Aggiornamento
+### Step 5: Sintesi del Mixdown Master & Esportazione
 
-1. **Visualizzazione Matrice a 1 Colonna:**
-   - *Causa:* La classe `grid-cols-13` non faceva parte dei default di Tailwind CSS, provocando il fallback del browser a 1 sola colonna a blocchi.
-   - *Risoluzione:* Configurato esplicitamente `gridTemplateColumns: repeat(13, minmax(2rem, 2.5rem))` con styling uniforme e `gridTemplateColumns: { '13': 'repeat(13, minmax(0, 1fr))' }` in `tailwind.config.js`.
-2. **Errore 404 e Syntax Error su `manifest.webmanifest`:**
-   - *Causa:* Il browser richiedeva automaticamente `/manifest.webmanifest`, `/vite.svg` e `/favicon.ico`. Mancando la cartella `public`, il server rispondeva con HTML che generava un `SyntaxError` quando interpretato come JSON.
-   - *Risoluzione:* Creati `manifest.webmanifest`, `manifest.json`, `vite.svg` e `favicon.ico` in `src-ui/public/` e aggiunti endpoint di fallback in `engine-py/main.py`.
-3. **Guida e Tutorial Integrati nella UI:**
-   - Aggiunto il componente interattivo **`WorkflowGuide`** con indicatore visivo a 5 step e tutorial a scomparsa direttamente dentro la workstation.
+1. Clicca su **`Synthesize Mixdown`** o **`Render Timeline Mixdown`**.
+2. Il motore Python esegue lo scheduling stocastico non omogeneo secondo $\lambda(t)$, assembla le fette trasformate della matrice dodecafonica, applica il panning equal-power e produce un master WAV a **24-bit PCM** (a 44.1 o 48.0 kHz).
+3. Il limiter soft-knee integrato previene qualsiasi saturazione digitale.
+
+---
+
+## 3. Download di Tutti i Prodotti Intermedi
+
+La workstation permette ora di esportare e scaricare ogni singolo elemento intermedio prodotto dal pipeline:
+
+| Prodotto Intermedio | Formato | Posizione / Come Scaricarlo |
+| --- | --- | --- |
+| **Audio Input Originale / Demo** | `.wav` | Pulsante **`Download Input WAV`** nel Modulo 1 |
+| **Singoli Stems Separati** | `.wav` | Pulsante **`WAV`** accanto a ciascun canale nel Modulo 2 |
+| **Tutti i 4 Stems Insieme** | `.zip` | Pulsante **`Stems (ZIP)`** nella testata del Modulo 2 |
+| **Tutte le Fette Audio Rilevate** | `.zip` | Pulsante **`All Slices (ZIP)`** nella testata del Modulo 2 (include WAVs, `slices_metadata.json` e `slices_metadata.csv`) |
+| **Metadati delle Fette** | `.json` | Pulsante **`Metadata (JSON)`** nella testata del Modulo 2 |
+| **Singolo Slice WAV** | `.wav` | Icona download nel badge di anteprima dello slice quando ci si passa sopra con il mouse |
+| **Fette di uno Specifico Stem** | `.zip` | Pulsante **`ZIP`** accanto alla traccia dello stem nel Modulo 2 o Modulo 3 |
+| **Matrice Seriale 12x12** | `.json` | Pulsante **`Export Matrix (JSON)`** nella barra delle forme del Modulo 3 |
+| **Master Renderizzato Finale** | `.wav` (24-bit) | Pulsante **`Export WAV`** nella testata principale della DAW |
+
+Tutti i download sono disponibili anche via API REST:
+- `/api/download/stem/{session_id}/{stem}`
+- `/api/download/stems-zip/{session_id}`
+- `/api/download/slices-zip/{session_id}`
+- `/api/download/slices-meta/{session_id}`
+- `/api/download/matrix-json/{session_id}/{stem}`
+- `/api/download/raw-mix/{session_id}`
+- `/api/download/slice/{session_id}/{stem}/{slice_id}`
+- `/api/export/{session_id}`
+
+---
+
+## 4. Test e Verifica
+
+Per verificare il funzionamento del sistema e dei nuovi endpoint:
+
+```bash
+# Esecuzione test suite completa (15 test unitari DSP/API + test di build Vite)
+./run.sh test
+
+# Avvio dei server di sviluppo
+./run.sh dev
+```

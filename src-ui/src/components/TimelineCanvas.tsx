@@ -294,20 +294,48 @@ export function TimelineCanvas({
             />
           </div>
 
-          <div className="flex items-center justify-between text-xs font-mono text-slate-400 pt-1">
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 flex-wrap gap-2">
+            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
               <Clock className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Target Duration:</span>
+              <span>Duration:</span>
               <input
                 type="range"
                 min="5"
-                max="60"
+                max={Math.max(300, Math.ceil(durationSec * 1.5))}
                 step="1"
                 value={durationSec}
                 onChange={(e) => setDurationSec(parseInt(e.target.value))}
-                className="w-32 accent-indigo-500 cursor-pointer"
+                className="w-28 accent-indigo-500 cursor-pointer"
               />
-              <span className="text-indigo-300">{durationSec}s</span>
+              <div className="flex items-center space-x-1">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={durationSec}
+                  onChange={(e) => {
+                    const val = Math.max(1, parseInt(e.target.value) || 1);
+                    setDurationSec(val);
+                  }}
+                  className="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-indigo-300 font-mono text-center text-xs focus:outline-none focus:border-indigo-500"
+                />
+                <span className="text-slate-400 text-xs">sec</span>
+              </div>
+              <div className="flex items-center space-x-1 pl-1">
+                {[15, 30, 60, 120, 300].map((sec) => (
+                  <button
+                    key={sec}
+                    onClick={() => setDurationSec(sec)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] transition ${
+                      durationSec === sec
+                        ? 'bg-indigo-600 text-white font-medium'
+                        : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400'
+                    }`}
+                  >
+                    {sec}s
+                  </button>
+                ))}
+              </div>
             </div>
 
             <button

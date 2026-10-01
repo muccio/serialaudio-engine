@@ -150,66 +150,92 @@ export function WorkflowGuide({
 
             <div className="space-y-2 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
               <h4 className="font-mono text-xs font-semibold text-indigo-300 uppercase">
-                2. How the 12-Tone Serial Matrix Operates on Audio
+                2. Come Funziona la Matrice Seriale Dodecafonica nell'Audio (DSP & Algoritmi)
               </h4>
               <p className="text-slate-400 text-xs">
-                Click <strong>"Select for Matrix"</strong> on any stem (e.g., <em>Other</em> or <em>Drums</em>) to assemble a 12-slice prime row (P0):
+                Seleziona qualsiasi stem (es. <em>Other</em> o <em>Drums</em>) o premi <strong>"Genera Matrice 12x12"</strong> nello Step 3. Ecco il meccanismo matematico ed audio che governa la sintesi:
               </p>
-              <ul className="list-disc pl-4 space-y-1 text-slate-400 text-xs">
+              <ul className="list-disc pl-4 space-y-1.5 text-slate-400 text-xs">
                 <li>
-                  <strong>Babbitt 12x12 Matrix:</strong> Computes all 48 canonical forms: 12 Prime (P0..P11), 12 Retrograde (R0..R11), 12 Inversion (I0..I11), and 12 Retrograde Inversion (RI0..RI11).
+                  <strong>Serie Base (Prime Row P0):</strong> Le prime 12 fette temporali dello stem formano la serie fondamentale. Per ogni fetta viene stimato il pitch fondamentale <em>f0</em> (o il baricentro spettrale per i suoni percussivi) e convertito in classe di altezza modulare <em>PC &isin; &#123;0..11&#125;</em>.
                 </li>
                 <li>
-                  <strong>P (Prime):</strong> Plays the 12 slices forward.
+                  <strong>Matrice di Babbitt 12x12:</strong> La riga 0 &egrave; P0; la colonna 0 &egrave; l'inversione I0. Ciascuna cella <em>(r, c) = (P0[c] - P0[0] + I0[r]) mod 12</em>. La matrice genera 48 permutazioni seriali canoniche (12 Prime, 12 Retrograde, 12 Inversioni, 12 Retrograde-Inversioni).
                 </li>
                 <li>
-                  <strong>R (Retrograde):</strong> Reverses slice order, with optional waveform reverse (x[-t]).
+                  <strong>Forma P (Prime):</strong> Esegue la sequenza in avanti. L'indice di riga seleziona la trasposizione cromatica di partenza.
                 </li>
                 <li>
-                  <strong>I (Inversion):</strong> For harmonic slices, interval pitch reflection mirrors melodies around the row centroid (&Delta;st_inv = -&Delta;st). For inharmonic percussion, FFT spectral band inversion flips high and low frequencies!
+                  <strong>Forma R (Retrogrado):</strong> Inverte l'ordine temporale delle fette (da destra a sinistra nella matrice). Se attivi <em>Reverse Buffer (x[-t])</em>, anche i campioni PCM di ciascun buffer vengono suonati al contrario (effetto nastro rovesciato).
                 </li>
                 <li>
-                  <strong>RI:</strong> Conjugates Inversion and Retrograde.
+                  <strong>Forma I (Inversione):</strong> Specchia simmetricamente gli intervalli di pitch attorno al baricentro (&Delta;st<sub>inv</sub> = -&Delta;st). Per i suoni inarmonici/percussivi (es. batteria), il motore DSP esegue un'<strong>Inversione Spettrale FFT</strong>: le frequenze acute diventano gravi e viceversa!
+                </li>
+                <li>
+                  <strong>Forma RI (Retrogrado Inverso):</strong> Coniuga l'inversione spettrale/pitch con la lettura temporale retrograda.
                 </li>
               </ul>
             </div>
 
             <div className="space-y-2 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
               <h4 className="font-mono text-xs font-semibold text-indigo-300 uppercase">
-                3. Density Automation & Timeline Scheduler
+                3. Download di Tutti i Prodotti Intermedi
               </h4>
               <p className="text-slate-400 text-xs">
-                The timeline density canvas defines the pacing of your serial reconstruction:
+                Puoi esportare ed utilizzare all'esterno ogni singolo componente generato dalla workstation:
               </p>
               <ul className="list-disc pl-4 space-y-1 text-slate-400 text-xs">
                 <li>
-                  <strong>Density Curve (&lambda;(t) events/sec):</strong> Click anywhere on the graph to add control points, or drag existing handles. Try the <em>Golden Arch</em>, <em>Crescendo</em>, or <em>Polyrhythmic</em> presets.
+                  <strong>Input Audio:</strong> Scarica il file audio grezzo caricato o il demo sintetico in formato WAV.
                 </li>
                 <li>
-                  <strong>Stem Weights:</strong> Sliders adjust the probability of triggering drums vs. bass vs. harmonic chords vs. lead melodies at any moment.
+                  <strong>Stems Separati:</strong> Scarica ciascun file WAV individuale (<em>drums.wav, bass.wav, other.wav, vocals.wav</em>) oppure l'archivio <strong>Stems (ZIP)</strong> completo.
                 </li>
                 <li>
-                  <strong>Target Duration:</strong> Choose anywhere from 5 seconds to 60 seconds.
+                  <strong>Fette & Transienti (Slices):</strong> Scarica tutte le fette in archivio <strong>All Slices (ZIP)</strong> con all'interno i file <em>slices_metadata.json</em> e <em>slices_metadata.csv</em>, o scarica singoli slice WAV direttamente dall'ispettore.
+                </li>
+                <li>
+                  <strong>Matrice Seriale (JSON):</strong> Esporta la matrice 12x12 con classi di altezza e metadati per l'integrazione in software MIDI o composizioni esterne.
                 </li>
               </ul>
             </div>
 
             <div className="space-y-2 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
               <h4 className="font-mono text-xs font-semibold text-indigo-300 uppercase">
-                4. Mixdown Synthesis & Mastering Export
+                4. Timeline Automation & Scheduler di Densità (Nessun Limite di 60s)
               </h4>
               <p className="text-slate-400 text-xs">
-                Click <strong>"Synthesize Mixdown"</strong> in the top header:
+                La timeline imposta il ritmo e la struttura della ricomposizione seriale:
               </p>
               <ul className="list-disc pl-4 space-y-1 text-slate-400 text-xs">
                 <li>
-                  The Python DSP engine schedules transformed serial row events according to the density envelope, applies equal-power stereo panning, and sums them into a master buffer.
+                  <strong>Durata Libera:</strong> Imposta qualsiasi durata desiderata (es. 15s, 60s, 120s, 300s+) senza alcun limite massimo prefissato, digitando il valore esatto o usando i preset rapidi.
                 </li>
                 <li>
-                  A soft-knee limiter normalizes output to prevent digital clipping.
+                  <strong>Curva di Densità (&lambda;(t) eventi/sec):</strong> Fai clic sulla tela per aggiungere punti di automazione o trascina i cerchietti per modellare la densità.
                 </li>
                 <li>
-                  Click <strong>"Play Master"</strong> to audition with real-time playhead tracking, or <strong>"Export WAV"</strong> to save the 24-bit broadcast WAV master!
+                  <strong>Pesi degli Stem:</strong> Regola la probabilità relativa con cui batteria, basso, archi o voci vengono innescati.
+                </li>
+              </ul>
+            </div>
+
+            <div className="space-y-2 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80">
+              <h4 className="font-mono text-xs font-semibold text-indigo-300 uppercase">
+                5. Sintesi Mixdown & Master WAV 24-bit
+              </h4>
+              <p className="text-slate-400 text-xs">
+                Clicca su <strong>"Render Timeline Mixdown"</strong>:
+              </p>
+              <ul className="list-disc pl-4 space-y-1 text-slate-400 text-xs">
+                <li>
+                  Il motore Python DSP pianifica gli eventi delle serie seriali trasformate secondo l'inviluppo di densità, applica il panning equal-power e somma i flussi in un master a 24-bit (44.1 o 48 kHz).
+                </li>
+                <li>
+                  Un limiter soft-knee normalizza l'uscita azzerando i rischi di digital clipping.
+                </li>
+                <li>
+                  Puoi ascoltare il risultato con il player integrato o scaricarlo con <strong>"Export WAV"</strong>.
                 </li>
               </ul>
             </div>
