@@ -112,3 +112,35 @@ def test_demo_and_pipeline_flow(client):
     })
     assert res_render_long.status_code == 200
     assert res_render_long.json()["duration_sec"] == 75.0
+
+    # 8. Test Save and Load Project (.serialproj bundle)
+    save_res = client.post("/api/project/save", json={
+        "session_id": session_id,
+        "project_name": "Sebastian_Serial_Suite",
+        "ui_state": {
+            "active_stem_for_matrix": "other",
+            "active_form": "RI",
+            "active_row": 3,
+            "target_duration_sec": 45.0
+        }
+    })
+    assert save_res.status_code == 200
+    assert "Sebastian_Serial_Suite.serialproj" in save_res.headers.get("content-disposition", "")
+    project_bytes = save_res.content
+    assert len(project_bytes) > 1000
+
+    # Load back the project bundle
+    load_res = client.post(
+        "/api/project/load",
+        files={"file": ("Sebastian_Serial_Suite.serialproj", project_bytes, "application/octet-stream")}
+    )
+    assert load_res.status_code == 200
+    loaded_data = load_res.json()
+    assert loaded_data["project_name"] == "Sebastian_Serial_Suite"
+    assert loaded_data["session_id"] != session_id  # Restored into fresh active session
+    assert set(loaded_data["stems"].keys()) == {"drums", "bass", "other", "vocals"}
+    assert "other" in loaded_data["slices"]
+    assert len(loaded_data["slices"]["other"]) > 0
+    assert loaded_data["ui_state"]["active_form"] == "RI"
+    assert loaded_data["ui_state"]["target_duration_sec"] == 45.0
+    assert loaded_data["matrix"] is not None

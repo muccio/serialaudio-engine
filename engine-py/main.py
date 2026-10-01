@@ -1,5 +1,6 @@
 """FastAPI & WebSocket IPC service for SerialAudio Engine."""
 import asyncio
+import datetime
 import io
 import json
 import logging
@@ -10,6 +11,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
+import numpy as np
 import soundfile as sf
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -648,6 +650,227 @@ async def download_single_slice(session_id: str, stem: str, slice_id: str):
         media_type="audio/wav",
         filename=f"{slice_id}.wav"
     )
+
+# --- Save & Load Project Endpoints ---
+
+class SaveProjectRequest(BaseModel):
+    session_id: str
+    project_name: Optional[str] = "SerialAudio_Project"
+    ui_state: Optional[Dict] = None
+
+@app.post("/api/project/save")
+async def save_project(req: SaveProjectRequest):
+    session_id = req.session_id
+    if session_id not in sessions:
+        sess_dir = CACHE_DIR / session_id
+        if sess_dir.exists():
+            get_or_create_session(session_id)
+        else:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    sess = sessions[session_id]
+    sess_dir = sess["dir"]
+
+    # Gather slices metadata
+    slices_meta = {}
+    for stem_name, slist in sess.get("slices", {}).items():
+        slices_meta[stem_name] = [s.to_dict() for s in slist]
+
+    # Gather matrices metadata
+    matrices_meta = {}
+    for stem_name, mat in sess.get("matrices", {}).items():
+        if mat:
+            matrices_meta[stem_name] = mat.get_matrix_metadata()
+
+    # Determine master path
+    master_path_exists = sess.get("master_path") is not None and Path(sess["master_path"]).exists()
+
+    project_manifest = {
+        "format": "SerialAudio_Project_v1",
+        "session_id": session_id,
+        "project_name": req.project_name or "SerialAudio_Project",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "ui_state": req.ui_state or {},
+        "slices_metadata": slices_meta,
+        "matrices_metadata": matrices_meta,
+        "has_master": master_path_exists,
+        "stems_list": list(sess.get("stems", {}).keys())
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # 1. Project Manifest
+        zf.writestr("project.json", json.dumps(project_manifest, indent=2))
+
+        # 2. Raw / Demo mix if present
+        raw_files = list(sess_dir.glob("raw/*")) + list(sess_dir.glob("uploaded_mix*")) + list(sess_dir.glob("sebastians_dance*"))
+        if sess.get("mix_path") and Path(sess["mix_path"]).exists():
+            p = Path(sess["mix_path"])
+            zf.write(p, arcname=f"raw/{p.name}")
+        elif raw_files:
+            zf.write(raw_files[0], arcname=f"raw/{raw_files[0].name}")
+
+        # 3. Stems
+        stems_dir = sess_dir / "stems"
+        if stems_dir.exists():
+            for stem_f in sorted(stems_dir.glob("*.wav")):
+                zf.write(stem_f, arcname=f"stems/{stem_f.name}")
+
+        # 4. Slices
+        slices_dir = sess_dir / "slices"
+        if slices_dir.exists():
+            for stem_sdir in sorted(slices_dir.iterdir()):
+                if stem_sdir.is_dir():
+                    for slice_f in sorted(stem_sdir.glob("*.wav")):
+                        zf.write(slice_f, arcname=f"slices/{stem_sdir.name}/{slice_f.name}")
+
+        # 5. Master Render if present
+        if master_path_exists:
+            mp = Path(sess["master_path"])
+            zf.write(mp, arcname=f"master/{mp.name}")
+
+    buf.seek(0)
+    clean_name = "".join(c for c in (req.project_name or "SerialAudio_Project") if c.isalnum() or c in ('_', '-'))
+    filename = f"{clean_name}.serialproj"
+    return StreamingResponse(
+        buf,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+@app.post("/api/project/load")
+async def load_project(file: UploadFile = File(...)):
+    new_session_id = uuid.uuid4().hex
+    new_dir = CACHE_DIR / new_session_id
+    new_dir.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    buf = io.BytesIO(content)
+
+    try:
+        with zipfile.ZipFile(buf, "r") as zf:
+            zf.extractall(new_dir)
+    except Exception as e:
+        shutil.rmtree(new_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=f"Invalid project file archive: {str(e)}")
+
+    manifest_file = new_dir / "project.json"
+    if not manifest_file.exists():
+        shutil.rmtree(new_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="Missing project.json in project archive")
+
+    with open(manifest_file, "r") as f:
+        manifest = json.load(f)
+
+    # Reconstruct session in memory
+    get_or_create_session(new_session_id)
+    sess = sessions[new_session_id]
+
+    # 1. Locate raw audio
+    raw_candidates = list((new_dir / "raw").glob("*")) if (new_dir / "raw").exists() else []
+    if raw_candidates:
+        sess["mix_path"] = raw_candidates[0]
+    else:
+        raw_matches = list(new_dir.glob("uploaded_mix*")) + list(new_dir.glob("sebastians_dance*"))
+        if raw_matches:
+            sess["mix_path"] = raw_matches[0]
+
+    # 2. Locate Stems
+    stems_dir = new_dir / "stems"
+    stems_map = {}
+    stem_urls = {}
+    if stems_dir.exists():
+        for stem_f in sorted(stems_dir.glob("*.wav")):
+            stem_name = stem_f.stem
+            stems_map[stem_name] = stem_f
+            stem_urls[stem_name] = f"/api/audio/{new_session_id}/stems/{stem_f.name}"
+    sess["stems"] = stems_map
+
+    # 3. Rebuild Slices
+    slices_dir = new_dir / "slices"
+    slices_by_stem: Dict[str, List[AudioSlice]] = {}
+    slices_metadata_out: Dict[str, List[Dict]] = {}
+    manifest_slices = manifest.get("slices_metadata", {})
+
+    if slices_dir.exists():
+        for stem_sdir in sorted(slices_dir.iterdir()):
+            if stem_sdir.is_dir():
+                stem_name = stem_sdir.name
+                slices_by_stem[stem_name] = []
+                slices_metadata_out[stem_name] = []
+                meta_by_id = {m["id"]: m for m in manifest_slices.get(stem_name, [])}
+
+                for slice_wav in sorted(stem_sdir.glob("*.wav")):
+                    slice_id = slice_wav.stem
+                    try:
+                        data, sr = sf.read(str(slice_wav), dtype='float32')
+                    except Exception:
+                        data = np.zeros(4410, dtype=np.float32)
+
+                    meta = meta_by_id.get(slice_id, {})
+                    sl = AudioSlice(
+                        id=slice_id,
+                        stem_source=meta.get("stem_source", stem_name),
+                        timestamp_start=meta.get("timestamp_start", 0.0),
+                        duration=meta.get("duration", len(data) / 44100.0),
+                        spectral_centroid=meta.get("spectral_centroid", 1000.0),
+                        estimated_pitch_hz=meta.get("estimated_pitch_hz", 440.0),
+                        pitch_semitone=meta.get("pitch_semitone", 60.0),
+                        buffer=data
+                    )
+                    slices_by_stem[stem_name].append(sl)
+
+                    out_meta = sl.to_dict()
+                    out_meta["audio_url"] = f"/api/audio/{new_session_id}/slices/{stem_name}/{sl.id}.wav"
+                    slices_metadata_out[stem_name].append(out_meta)
+
+    sess["slices"] = slices_by_stem
+
+    # 4. Rebuild Matrices
+    for stem_name, slist in slices_by_stem.items():
+        if slist:
+            sess["matrices"][stem_name] = DodecaphonicMatrix(slist)
+
+    # 5. Locate Master Render
+    master_dir = new_dir / "master"
+    master_render_res = None
+    if master_dir.exists():
+        master_files = list(master_dir.glob("*.wav"))
+        if master_files:
+            sess["master_path"] = master_files[0]
+            master_render_res = {
+                "master_url": f"/api/audio/{new_session_id}/master/{master_files[0].name}",
+                "export_url": f"/api/export/{new_session_id}",
+                "event_count": manifest.get("ui_state", {}).get("last_render_event_count", 0),
+                "duration_sec": manifest.get("ui_state", {}).get("target_duration_sec", 15.0),
+                "peak_amplitude": 0.95
+            }
+
+    # Active stem matrix metadata
+    active_stem = manifest.get("ui_state", {}).get("active_stem_for_matrix", "other")
+    if active_stem not in sess["matrices"] and slices_by_stem:
+        active_stem = next(iter(slices_by_stem.keys()))
+
+    mat_data = None
+    if active_stem in sess["matrices"]:
+        mat_data = {
+            "session_id": new_session_id,
+            "stem": active_stem,
+            **sess["matrices"][active_stem].get_matrix_metadata()
+        }
+        for item in mat_data.get("prime_row", []):
+            item["audio_url"] = f"/api/audio/{new_session_id}/slices/{active_stem}/{item['id']}.wav"
+
+    return {
+        "session_id": new_session_id,
+        "project_name": manifest.get("project_name", file.filename or "Loaded_Project"),
+        "created_at": manifest.get("created_at"),
+        "stems": stem_urls,
+        "slices": slices_metadata_out,
+        "matrix": mat_data,
+        "ui_state": manifest.get("ui_state", {}),
+        "render_result": master_render_res
+    }
 
 if __name__ == "__main__":
     import uvicorn

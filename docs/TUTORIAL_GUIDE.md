@@ -154,7 +154,47 @@ Tutti i download sono disponibili anche via API REST:
 
 ---
 
-## 4. Test e Verifica
+## 4. Salvataggio & Caricamento del Progetto (`.serialproj`)
+
+La workstation include un sistema completo di persistenza del progetto in un unico archivio compatto con estensione **`.serialproj`** (formato standard ZIP decompattabile).
+
+### Cosa include il salvataggio:
+1. **`project.json` (Stato e Cronologia Completa):**
+   - Nome del progetto, data/ora UTC di creazione e formato.
+   - Tutti i passaggi completati fino a quel momento.
+   - Impostazioni di slicing MIR (metodo, threshold, min/max ms, crossfade).
+   - Metadati acustici di ciascuna fetta ($f_0$ stimato in Hz e semitono, durata, timestamp, centroide spettrale).
+   - Matrice seriale di Babbitt $12 \times 12$ pre-calcolata.
+   - Stato esatto dell'interfaccia utente:
+     - Stem attivo per la matrice (`other`, `drums`, etc.).
+     - Forma seriale attiva ($P, R, I, RI$).
+     - Indice di riga/trasposizione attiva ($0 \dots 11$).
+     - Stato del flag di inversione buffer ($x[-t]$).
+     - Durata target della timeline (es. 15s, 60s, 300s).
+     - Punti esatti della curva di automazione di densità $\lambda(t)$.
+     - Pesi di bilanciamento dei 4 stem.
+     - Sample rate selezionato (44.1 o 48.0 kHz).
+     - Statistiche dell'ultimo master mixdown (se renderizzato).
+2. **Tutti i Dati Audio Generati (File WAV Reali):**
+   - `raw/`: Mix audio originale caricato o demo sintetico.
+   - `stems/`: Tutti i 4 stem Demucs separati (`drums.wav`, `bass.wav`, `other.wav`, `vocals.wav`).
+   - `slices/`: Tutte le singole fette audio WAV segmentate e organizzate per traccia.
+   - `master/`: Il master mixdown a 24-bit renderizzato (se generato prima del salvataggio).
+
+### Come salvare:
+- Clicca sul pulsante **`Save Proj`** nella barra superiore in alto.
+- Inserisci il nome desiderato (default: `SerialAudio_Project`).
+- Il browser scaricherà il file `NomeProgetto.serialproj`.
+
+### Come caricare:
+- Clicca sul pulsante **`Load Proj`** nella barra superiore in alto.
+- Seleziona un file `.serialproj` precedentemente salvato.
+- Il motore decomprime e reidrata l'intera sessione sul server:
+  - Tutte le forme d'onda, i marcatori di transienti, la matrice dodecafonica, la curva di densità e il lettore audio del master tornano esattamente nello stato in cui erano stati salvati!
+
+---
+
+## 5. Test e Verifica
 
 Per verificare il funzionamento del sistema e dei nuovi endpoint:
 

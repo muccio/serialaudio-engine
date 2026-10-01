@@ -1,4 +1,5 @@
-import { Activity, Download, Play, Square } from 'lucide-react';
+import { useRef } from 'react';
+import { Activity, Download, FolderOpen, Play, Save, Square } from 'lucide-react';
 
 interface HeaderProps {
   isBackendConnected: boolean;
@@ -6,10 +7,15 @@ interface HeaderProps {
   setSampleRate: (sr: number) => void;
   isPlayingMaster: boolean;
   hasMaster: boolean;
+  hasSession: boolean;
   onToggleMasterPlay: () => void;
   onExportMaster: () => void;
   isRendering: boolean;
   onTriggerRender: () => void;
+  onSaveProject: () => void;
+  onLoadProjectFile: (file: File) => void;
+  isSavingProject?: boolean;
+  isLoadingProject?: boolean;
 }
 
 export function Header({
@@ -18,11 +24,17 @@ export function Header({
   setSampleRate,
   isPlayingMaster,
   hasMaster,
+  hasSession,
   onToggleMasterPlay,
   onExportMaster,
   isRendering,
-  onTriggerRender
+  onTriggerRender,
+  onSaveProject,
+  onLoadProjectFile,
+  isSavingProject = false,
+  isLoadingProject = false
 }: HeaderProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   return (
     <header className="h-16 border-b border-surfaceBorder bg-surface/80 backdrop-blur px-6 flex items-center justify-between sticky top-0 z-50">
       <div className="flex items-center space-x-3">
@@ -46,6 +58,43 @@ export function Header({
           <span className={isBackendConnected ? 'text-emerald-400' : 'text-rose-400'}>
             {isBackendConnected ? 'DSP Service 8000' : 'Offline'}
           </span>
+        </div>
+
+        {/* Project Save & Load Actions */}
+        <div className="flex items-center space-x-1.5 border-r border-slate-800 pr-3">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                onLoadProjectFile(file);
+                e.target.value = '';
+              }
+            }}
+            accept=".serialproj,.zip"
+            className="hidden"
+          />
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!isBackendConnected || isLoadingProject}
+            title="Carica un progetto completo (.serialproj)"
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition active:scale-95 disabled:opacity-40"
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
+            <span>{isLoadingProject ? 'Loading...' : 'Load Proj'}</span>
+          </button>
+
+          <button
+            onClick={onSaveProject}
+            disabled={!hasSession || isSavingProject}
+            title="Salva l'intero progetto (.serialproj con tutti gli step, stem, slice, matrice e timeline)"
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition active:scale-95 disabled:opacity-40"
+          >
+            <Save className="w-3.5 h-3.5 text-indigo-400" />
+            <span>{isSavingProject ? 'Saving...' : 'Save Proj'}</span>
+          </button>
         </div>
 
         {/* Sample Rate Selector */}

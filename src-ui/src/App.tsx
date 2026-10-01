@@ -47,6 +47,9 @@ export default function App() {
   // Execution states
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isRendering, setIsRendering] = useState<boolean>(false);
+  const [isSavingProject, setIsSavingProject] = useState<boolean>(false);
+  const [isLoadingProject, setIsLoadingProject] = useState<boolean>(false);
+  const [projectName, setProjectName] = useState<string>("SerialAudio_Project");
   const [progress, setProgress] = useState<WebSocketProgressPayload | null>(null);
   const [renderResult, setRenderResult] = useState<RenderResult | null>(null);
 
@@ -321,6 +324,99 @@ export default function App() {
     window.open(api.getAudioUrl(renderResult.export_url), '_blank');
   };
 
+  const handleSaveProject = async () => {
+    if (!sessionId) {
+      alert("Nessun progetto o sessione attiva da salvare. Carica o crea prima una traccia.");
+      return;
+    }
+    const name = prompt("Inserisci il nome del progetto da salvare:", projectName) || projectName;
+    setProjectName(name);
+
+    try {
+      setIsSavingProject(true);
+      const blob = await api.saveProject({
+        sessionId,
+        projectName: name,
+        uiState: {
+          active_stem_for_matrix: activeStemForMatrix,
+          active_form: activeForm,
+          active_row: activeRow,
+          reverse_buffers: reverseBuffers,
+          target_duration_sec: targetDurationSec,
+          density_curve: densityCurve,
+          stem_weights: stemWeights,
+          sample_rate: sampleRate,
+          last_render_event_count: renderResult?.event_count || 0
+        }
+      });
+
+      const cleanName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${cleanName}.serialproj`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setIsSavingProject(false);
+    } catch (err: any) {
+      alert(`Errore salvataggio progetto: ${err.message}`);
+      setIsSavingProject(false);
+    }
+  };
+
+  const handleLoadProjectFile = async (file: File) => {
+    try {
+      setIsLoadingProject(true);
+      setProgress({ session_id: '', progress: 0.2, stage: 'project_load', message: `Caricamento progetto ${file.name}...` });
+
+      const loaded = await api.loadProject(file);
+
+      // Restore session & project name
+      setSessionId(loaded.session_id);
+      setProjectName(loaded.project_name || file.name.replace(/\.[^/.]+$/, ''));
+      setStems(loaded.stems || {});
+      setSlices(loaded.slices || {});
+
+      // Restore UI State if present
+      if (loaded.ui_state) {
+        if (loaded.ui_state.active_stem_for_matrix) setActiveStemForMatrix(loaded.ui_state.active_stem_for_matrix);
+        if (loaded.ui_state.active_form) setActiveForm(loaded.ui_state.active_form);
+        if (typeof loaded.ui_state.active_row === 'number') setActiveRow(loaded.ui_state.active_row);
+        if (typeof loaded.ui_state.reverse_buffers === 'boolean') setReverseBuffers(loaded.ui_state.reverse_buffers);
+        if (loaded.ui_state.target_duration_sec) setDurationSec(loaded.ui_state.target_duration_sec);
+        if (loaded.ui_state.density_curve && Array.isArray(loaded.ui_state.density_curve)) setDensityCurve(loaded.ui_state.density_curve);
+        if (loaded.ui_state.stem_weights) setStemWeights(loaded.ui_state.stem_weights);
+        if (loaded.ui_state.sample_rate) setSampleRate(loaded.ui_state.sample_rate);
+      }
+
+      // Restore Matrix
+      if (loaded.matrix) {
+        setMatrixData(loaded.matrix);
+      } else if (loaded.ui_state?.active_stem_for_matrix) {
+        api.getMatrix(loaded.session_id, loaded.ui_state.active_stem_for_matrix).then(setMatrixData).catch(() => {});
+      }
+
+      // Restore Master render if present
+      if (loaded.render_result) {
+        setRenderResult(loaded.render_result);
+        if (audioPlayerRef.current) {
+          audioPlayerRef.current.src = api.getAudioUrl(loaded.render_result.master_url);
+        }
+      } else {
+        setRenderResult(null);
+      }
+
+      setIsLoadingProject(false);
+      setProgress(null);
+    } catch (err: any) {
+      alert(`Errore caricamento progetto: ${err.message}`);
+      setIsLoadingProject(false);
+      setProgress(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background text-slate-100 flex flex-col font-sans">
       {/* Hidden Master Audio Element */}
@@ -333,10 +429,15 @@ export default function App() {
         setSampleRate={setSampleRate}
         isPlayingMaster={isPlayingMaster}
         hasMaster={!!renderResult}
+        hasSession={!!sessionId}
         onToggleMasterPlay={handleToggleMasterPlay}
         onExportMaster={handleExportMaster}
         isRendering={isRendering}
         onTriggerRender={handleTriggerRender}
+        onSaveProject={handleSaveProject}
+        onLoadProjectFile={handleLoadProjectFile}
+        isSavingProject={isSavingProject}
+        isLoadingProject={isLoadingProject}
       />
 
       {/* Main DAW Workspace Layout */}

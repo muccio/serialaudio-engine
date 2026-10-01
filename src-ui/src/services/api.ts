@@ -150,5 +150,46 @@ export const api = {
 
   getSliceDownloadUrl(sessionId: string, stem: string, sliceId: string): string {
     return `${API_BASE}/api/download/slice/${encodeURIComponent(sessionId)}/${encodeURIComponent(stem)}/${encodeURIComponent(sliceId)}`;
+  },
+
+  async saveProject(params: {
+    sessionId: string;
+    projectName?: string;
+    uiState?: Record<string, any>;
+  }): Promise<Blob> {
+    const res = await fetch(`${API_BASE}/api/project/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: params.sessionId,
+        project_name: params.projectName || 'SerialAudio_Project',
+        ui_state: params.uiState || {}
+      })
+    });
+    if (!res.ok) throw new Error(`Save project failed: ${res.statusText}`);
+    return res.blob();
+  },
+
+  async loadProject(file: File): Promise<{
+    session_id: string;
+    project_name: string;
+    created_at?: string;
+    stems: Record<string, string>;
+    slices: Record<string, AudioSliceMetadata[]>;
+    matrix: MatrixMetadata | null;
+    ui_state: Record<string, any>;
+    render_result: RenderResult | null;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/api/project/load`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Load project failed: ${res.statusText}`);
+    }
+    return res.json();
   }
 };
