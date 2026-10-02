@@ -241,7 +241,20 @@ export function AudioIngest({
             <button
               onClick={() => onDetectSlices({ method, threshold, minDurationMs, maxDurationMs, crossfadeMs })}
               disabled={isProcessing || !hasStems}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-medium transition active:scale-95 shadow"
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-medium transition active:scale-95 shadow ${
+                !hasStems
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-40'
+                  : hasSlices
+                  ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-900/50 ring-2 ring-indigo-400/50'
+              }`}
+              title={
+                !hasStems
+                  ? 'Carica una traccia audio o demo per abilitare la frammentazione'
+                  : hasSlices
+                  ? 'Riesegui la frammentazione con i parametri correnti'
+                  : 'Avvia la frammentazione dei 4 stem'
+              }
             >
               <Scissors className="w-3.5 h-3.5" />
               <span>{hasSlices ? 'Re-Slice Stems' : 'Detect & Slice Events'}</span>

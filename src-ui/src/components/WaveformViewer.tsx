@@ -91,42 +91,59 @@ export function WaveformViewer({
       const midY = height / 2;
       const ampMax = height * 0.42;
 
-      // Draw stylized audio transients
-      stemSlices.forEach((slice) => {
-        const startX = (slice.timestamp_start / maxTime) * width;
-        const sliceW = Math.max(2, (slice.duration / maxTime) * width);
-
-        // Draw slice background highlight
-        ctx.fillStyle = colors.bg;
-        ctx.fillRect(startX, 0, sliceW, height);
-
-        // Draw boundary line
+      if (stemSlices.length === 0) {
         ctx.strokeStyle = colors.base;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
         ctx.beginPath();
-        ctx.moveTo(startX, 0);
-        ctx.lineTo(startX, height);
+        ctx.moveTo(0, midY);
+        ctx.lineTo(width, midY);
         ctx.stroke();
+        ctx.setLineDash([]);
 
-        // Waveform envelope in slice
-        ctx.fillStyle = colors.wave;
-        const steps = Math.max(6, Math.floor(sliceW / 2));
-        for (let s = 0; s < steps; s++) {
-          const x = startX + (s / steps) * sliceW;
-          const progress = s / steps;
-          const env = Math.exp(-3.5 * progress) * (0.3 + 0.7 * Math.sin(progress * Math.PI));
-          const h = ampMax * env * (0.6 + 0.4 * Math.sin(s * 1.5));
-          ctx.fillRect(x, midY - h, 1.5, h * 2);
-        }
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Stem pronto — premi "Detect & Slice Events" per avviare la frammentazione', width / 2, midY + 3.5);
+        ctx.textAlign = 'start';
+      } else {
+        // Draw stylized audio transients
+        stemSlices.forEach((slice) => {
+          const startX = (slice.timestamp_start / maxTime) * width;
+          const sliceW = Math.max(2, (slice.duration / maxTime) * width);
 
-        // Draw pitch / slice badge
-        ctx.fillStyle = colors.base;
-        ctx.font = '9px monospace';
-        const label = slice.pitch_semitone > 0
-          ? `M${Math.round(slice.pitch_semitone)}`
-          : `${Math.round(slice.spectral_centroid)}Hz`;
-        ctx.fillText(label, startX + 3, 12);
-      });
+          // Draw slice background highlight
+          ctx.fillStyle = colors.bg;
+          ctx.fillRect(startX, 0, sliceW, height);
+
+          // Draw boundary line
+          ctx.strokeStyle = colors.base;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(startX, 0);
+          ctx.lineTo(startX, height);
+          ctx.stroke();
+
+          // Waveform envelope in slice
+          ctx.fillStyle = colors.wave;
+          const steps = Math.max(6, Math.floor(sliceW / 2));
+          for (let s = 0; s < steps; s++) {
+            const x = startX + (s / steps) * sliceW;
+            const progress = s / steps;
+            const env = Math.exp(-3.5 * progress) * (0.3 + 0.7 * Math.sin(progress * Math.PI));
+            const h = ampMax * env * (0.6 + 0.4 * Math.sin(s * 1.5));
+            ctx.fillRect(x, midY - h, 1.5, h * 2);
+          }
+
+          // Draw pitch / slice badge
+          ctx.fillStyle = colors.base;
+          ctx.font = '9px monospace';
+          const label = slice.pitch_semitone > 0
+            ? `M${Math.round(slice.pitch_semitone)}`
+            : `${Math.round(slice.spectral_centroid)}Hz`;
+          ctx.fillText(label, startX + 3, 12);
+        });
+      }
     });
   }, [stems, slices, maxTime]);
 

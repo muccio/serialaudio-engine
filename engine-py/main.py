@@ -361,21 +361,13 @@ async def get_serial_matrix(req: MatrixRequest):
         if stem in sess["slices"] and sess["slices"][stem]:
             sess["matrices"][stem] = DodecaphonicMatrix(sess["slices"][stem])
         else:
-            # 2. Check if stem audio exists on disk and slice it
-            stem_file = sess["dir"] / "stems" / f"{stem}.wav"
-            if stem_file.exists():
-                detector = OnsetDetector()
-                detected = detector.detect_and_slice(stem_file, stem_source=stem)
-                sess["slices"][stem] = detected
-                sess["matrices"][stem] = DodecaphonicMatrix(detected)
+            # 2. Check if any other stem has slices
+            any_stem_slices = next((v for v in sess["slices"].values() if v), None)
+            if any_stem_slices:
+                sess["matrices"][stem] = DodecaphonicMatrix(any_stem_slices)
             else:
-                # 3. Check if any other stem has slices
-                any_stem_slices = next((v for v in sess["slices"].values() if v), None)
-                if any_stem_slices:
-                    sess["matrices"][stem] = DodecaphonicMatrix(any_stem_slices)
-                else:
-                    # 4. Fallback to default chromatic series so Step 3 always displays
-                    sess["matrices"][stem] = DodecaphonicMatrix([])
+                # 3. Fallback to default chromatic series so Step 3 displays gracefully
+                sess["matrices"][stem] = DodecaphonicMatrix([])
 
     mat_obj: DodecaphonicMatrix = sess["matrices"][stem]
     meta = mat_obj.get_matrix_metadata()
@@ -615,11 +607,9 @@ async def download_matrix_json(session_id: str, stem: str):
         if stem in sess.get("slices", {}) and sess["slices"][stem]:
             mat_obj = DodecaphonicMatrix(sess["slices"][stem])
         else:
-            stem_file = sess_dir / "stems" / f"{stem}.wav"
-            if stem_file.exists():
-                detector = OnsetDetector()
-                det = detector.detect_and_slice(stem_file, stem_source=stem)
-                mat_obj = DodecaphonicMatrix(det)
+            any_stem_slices = next((v for v in sess.get("slices", {}).values() if v), None)
+            if any_stem_slices:
+                mat_obj = DodecaphonicMatrix(any_stem_slices)
             else:
                 mat_obj = DodecaphonicMatrix([])
         sess.setdefault("matrices", {})[stem] = mat_obj

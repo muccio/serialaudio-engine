@@ -155,16 +155,14 @@ export default function App() {
 
   const totalSlices = Object.values(slices).reduce((acc, list) => acc + list.length, 0);
 
-  // Update matrix data when active stem changes or when stems/slices update
+  // Update matrix data when active stem changes or when slices update
   useEffect(() => {
-    if (sessionId && activeStemForMatrix) {
-      if (Object.keys(stems).length > 0 || totalSlices > 0) {
-        api.getMatrix(sessionId, activeStemForMatrix)
-          .then(setMatrixData)
-          .catch((err) => console.error('Matrix load error:', err));
-      }
+    if (sessionId && activeStemForMatrix && totalSlices > 0) {
+      api.getMatrix(sessionId, activeStemForMatrix)
+        .then(setMatrixData)
+        .catch((err) => console.error('Matrix load error:', err));
     }
-  }, [sessionId, activeStemForMatrix, totalSlices, stems]);
+  }, [sessionId, activeStemForMatrix, totalSlices]);
 
   // Audio playhead sync
   useEffect(() => {
@@ -199,36 +197,19 @@ export default function App() {
       const demo = await api.generateDemo(8.0);
       setSessionId(demo.session_id);
       setStems(demo.stems);
-
-      // Auto trigger slice detection
-      const sliceMsg = { session_id: demo.session_id, progress: 0.5, stage: 'slicing', message: 'Rilevamento transienti MIR su 4 stem in corso...' };
-      setProgress(sliceMsg);
-      setGlobalProgress({ isActive: true, stage: 'slicing', progress: 0.5, message: sliceMsg.message });
-
-      const sliceRes = await api.sliceEvents({
-        sessionId: demo.session_id,
-        method: 'spectral_flux',
-        threshold: 0.2,
-        minDurationMs: 50,
-        maxDurationMs: 1200,
-        crossfadeMs: 5
-      });
-      setSlices(sliceRes.slices);
-
-      // Load matrix for first harmonic stem
-      const mat = await api.getMatrix(demo.session_id, 'other');
-      setMatrixData(mat);
-      setActiveStemForMatrix('other');
+      // Reset slices and matrix so fragmentation starts only when requested by user
+      setSlices({});
+      setMatrixData(null);
 
       setIsProcessing(false);
       setGlobalProgress({
         isActive: false,
         stage: 'demo_generation',
         progress: 1.0,
-        message: 'Demo caricata e analizzata con successo!',
+        message: "Demo Menotti 'Sebastian's Dance' caricata! 4 stem pronti. Clicca su 'Detect & Slice Events' per avviare la frammentazione.",
         isComplete: true
       });
-      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2000);
+      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2500);
     } catch (err: any) {
       alert(`Error loading demo: ${err.message}`);
       setIsProcessing(false);
@@ -253,35 +234,19 @@ export default function App() {
 
       const sepRes = await api.separateStems(uploadRes.session_id);
       setStems(sepRes.stems);
-
-      // Trigger Slicing
-      const slMsg = { session_id: uploadRes.session_id, progress: 0.65, stage: 'slicing', message: 'Rilevamento transienti MIR e stima altezza pYIN...' };
-      setProgress(slMsg);
-      setGlobalProgress({ isActive: true, stage: 'slicing', progress: 0.65, message: slMsg.message });
-
-      const sliceRes = await api.sliceEvents({
-        sessionId: uploadRes.session_id,
-        method: 'spectral_flux',
-        threshold: 0.2,
-        minDurationMs: 50,
-        maxDurationMs: 1200,
-        crossfadeMs: 5
-      });
-      setSlices(sliceRes.slices);
-
-      const mat = await api.getMatrix(uploadRes.session_id, 'other');
-      setMatrixData(mat);
-      setActiveStemForMatrix('other');
+      // Reset any previous slices and matrix so fragmentation starts only when requested
+      setSlices({});
+      setMatrixData(null);
 
       setIsProcessing(false);
       setGlobalProgress({
         isActive: false,
         stage: 'separation',
         progress: 1.0,
-        message: `${file.name} elaborato con successo!`,
+        message: `Separazione neurale completata (${file.name})! 4 stem pronti. Puoi ora avviare la frammentazione quando desideri.`,
         isComplete: true
       });
-      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2000);
+      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2500);
     } catch (err: any) {
       alert(`Error processing file: ${err.message}`);
       setIsProcessing(false);
@@ -299,26 +264,59 @@ export default function App() {
     if (!sessionId) return;
     try {
       setIsProcessing(true);
+      const slMsg = {
+        session_id: sessionId,
+        progress: 0.1,
+        stage: 'slicing',
+        message: 'Rilevamento transienti MIR e frammentazione degli stem in corso...'
+      };
+      setProgress(slMsg);
+      setGlobalProgress({
+        isActive: true,
+        stage: 'slicing',
+        progress: 0.1,
+        message: slMsg.message
+      });
+
       const res = await api.sliceEvents({
         sessionId,
         ...params
       });
       setSlices(res.slices);
 
-      if (activeStemForMatrix) {
-        const mat = await api.getMatrix(sessionId, activeStemForMatrix);
+      const stemToUse = activeStemForMatrix || 'other';
+      try {
+        const mat = await api.getMatrix(sessionId, stemToUse);
         setMatrixData(mat);
+        setActiveStemForMatrix(stemToUse);
+      } catch (matErr) {
+        console.warn('Matrix load warning:', matErr);
       }
+
       setIsProcessing(false);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'slicing',
+        progress: 1.0,
+        message: `Frammentazione completata con successo (${res.total_slices} fette estratte)!`,
+        isComplete: true
+      });
+      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2000);
     } catch (err: any) {
-      alert(`Slice error: ${err.message}`);
+      alert(`Errore frammentazione: ${err.message}`);
       setIsProcessing(false);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'error',
+        progress: 0,
+        message: `Errore frammentazione: ${err.message}`
+      });
     }
   };
 
   const handleSelectStemForMatrix = async (stem: string) => {
     setActiveStemForMatrix(stem);
-    if (sessionId) {
+    if (sessionId && totalSlices > 0) {
       try {
         setIsProcessing(true);
         const mat = await api.getMatrix(sessionId, stem);
