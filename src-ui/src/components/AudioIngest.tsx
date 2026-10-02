@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Download, FileAudio, Loader2, Music2, Scissors, Sliders, UploadCloud } from 'lucide-react';
 import { WebSocketProgressPayload } from '../types';
 import { api } from '../services/api';
+import { downloadFile } from '../utils/downloader';
 
 interface AudioIngestProps {
   sessionId?: string | null;
@@ -14,6 +15,7 @@ interface AudioIngestProps {
     maxDurationMs: number;
     crossfadeMs: number;
   }) => void;
+  onTriggerDownload?: (url: string, filename: string) => Promise<void>;
   isProcessing: boolean;
   progress: WebSocketProgressPayload | null;
   hasAudio: boolean;
@@ -27,6 +29,7 @@ export function AudioIngest({
   onFileUpload,
   onLoadDemo,
   onDetectSlices,
+  onTriggerDownload,
   isProcessing,
   progress,
   hasAudio,
@@ -35,6 +38,7 @@ export function AudioIngest({
   stemCount
 }: AudioIngestProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDownloadingMix, setIsDownloadingMix] = useState<boolean>(false);
   const [method, setMethod] = useState<'spectral_flux' | 'hfc' | 'energy'>('spectral_flux');
   const [threshold, setThreshold] = useState<number>(0.2);
   const [minDurationMs, setMinDurationMs] = useState<number>(50);
@@ -114,12 +118,34 @@ export function AudioIngest({
               <span className="text-[11px] font-mono text-emerald-400">Audio source loaded</span>
               {sessionId && (
                 <button
-                  onClick={() => window.open(api.getRawMixDownloadUrl(sessionId), '_blank')}
-                  className="flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono transition"
+                  onClick={async () => {
+                    if (!sessionId) return;
+                    setIsDownloadingMix(true);
+                    try {
+                      if (onTriggerDownload) {
+                        await onTriggerDownload(api.getRawMixDownloadUrl(sessionId), 'input_mix.wav');
+                      } else {
+                        await downloadFile({
+                          url: api.getRawMixDownloadUrl(sessionId),
+                          defaultFilename: 'input_mix.wav'
+                        });
+                      }
+                    } catch (err: any) {
+                      console.error('Download mix error:', err);
+                    } finally {
+                      setIsDownloadingMix(false);
+                    }
+                  }}
+                  disabled={isDownloadingMix}
+                  className="flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono transition disabled:opacity-50"
                   title="Download input audio mix (WAV)"
                 >
-                  <Download className="w-3 h-3 text-indigo-400" />
-                  <span>Download Input WAV</span>
+                  {isDownloadingMix ? (
+                    <Loader2 className="w-3 h-3 text-indigo-400 animate-spin" />
+                  ) : (
+                    <Download className="w-3 h-3 text-indigo-400" />
+                  )}
+                  <span>{isDownloadingMix ? 'Downloading...' : 'Download Input WAV'}</span>
                 </button>
               )}
             </div>

@@ -35,6 +35,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 BASE_DIR = Path(__file__).parent.resolve()
@@ -166,19 +167,24 @@ async def websocket_endpoint(websocket: WebSocket):
 
 def _send_progress_sync(session_id: str, progress: float, stage: str, message: str):
     """Bridge sync callbacks to async WebSocket broadcast via running event loop if available."""
+    logger.info(f"[{stage.upper()}] session={session_id[:8]} progress={int(progress*100)}%: {message}")
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+        if loop and loop.is_running():
+            asyncio.run_coroutine_threadsafe(
                 manager.broadcast({
                     "session_id": session_id,
                     "progress": progress,
                     "stage": stage,
                     "message": message
-                })
+                }),
+                loop
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Progress broadcast error: {e}")
 
 @app.post("/api/upload")
 async def upload_audio(file: UploadFile = File(...)):
@@ -507,16 +513,23 @@ async def download_stems_zip(session_id: str):
     if not stems_dir.exists() or not any(stems_dir.glob("*.wav")):
         raise HTTPException(status_code=404, detail="No stems found in session")
 
+    _send_progress_sync(session_id, 0.2, "download", "Preparazione archivio ZIP degli stem...")
+
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         for stem_file in sorted(stems_dir.glob("*.wav")):
             zf.write(stem_file, arcname=f"stems/{stem_file.name}")
-    buf.seek(0)
 
-    return StreamingResponse(
-        buf,
+    data = buf.getvalue()
+    _send_progress_sync(session_id, 1.0, "download", f"Archivio ZIP stem pronto ({len(data)} bytes)")
+
+    return Response(
+        content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="serialaudio_stems_{session_id[:8]}.zip"'}
+        headers={
+            "Content-Disposition": f'attachment; filename="serialaudio_stems_{session_id[:8]}.zip"',
+            "Content-Length": str(len(data))
+        }
     )
 
 @app.get("/api/download/slices-zip/{session_id}")
@@ -528,11 +541,13 @@ async def download_slices_zip(session_id: str, stem: Optional[str] = None):
     if not slices_dir.exists():
         raise HTTPException(status_code=404, detail="No slices found in session")
 
+    _send_progress_sync(session_id, 0.2, "download", "Preparazione archivio ZIP delle fette...")
+
     sess = sessions.get(session_id, {})
     slices_map = sess.get("slices", {})
 
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         csv_rows = ["id,stem,timestamp_start,duration,pitch_hz,pitch_semitone,spectral_centroid"]
         meta_dict = {}
 
@@ -558,12 +573,17 @@ async def download_slices_zip(session_id: str, stem: Optional[str] = None):
         zf.writestr("slices_metadata.json", json.dumps(meta_dict, indent=2))
         zf.writestr("slices_metadata.csv", "\n".join(csv_rows))
 
-    buf.seek(0)
+    data = buf.getvalue()
     zip_name = f"serialaudio_slices_{stem}_{session_id[:8]}.zip" if stem else f"serialaudio_all_slices_{session_id[:8]}.zip"
-    return StreamingResponse(
-        buf,
+    _send_progress_sync(session_id, 1.0, "download", f"Archivio ZIP fette pronto ({len(data)} bytes)")
+
+    return Response(
+        content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'}
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_name}"',
+            "Content-Length": str(len(data))
+        }
     )
 
 @app.get("/api/download/slices-meta/{session_id}")
@@ -697,8 +717,10 @@ async def save_project(req: SaveProjectRequest):
         "stems_list": list(sess.get("stems", {}).keys())
     }
 
+    _send_progress_sync(session_id, 0.1, "save_project", "Creazione archivio progetto .serialproj...")
+
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         # 1. Project Manifest
         zf.writestr("project.json", json.dumps(project_manifest, indent=2))
 
@@ -729,13 +751,19 @@ async def save_project(req: SaveProjectRequest):
             mp = Path(sess["master_path"])
             zf.write(mp, arcname=f"master/{mp.name}")
 
-    buf.seek(0)
+    data = buf.getvalue()
     clean_name = "".join(c for c in (req.project_name or "SerialAudio_Project") if c.isalnum() or c in ('_', '-'))
     filename = f"{clean_name}.serialproj"
-    return StreamingResponse(
-        buf,
+
+    _send_progress_sync(session_id, 1.0, "save_project", f"Archivio .serialproj creato ({len(data)} bytes). Invio...")
+
+    return Response(
+        content=data,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(data))
+        }
     )
 
 @app.post("/api/project/load")
@@ -746,6 +774,8 @@ async def load_project(file: UploadFile = File(...)):
 
     content = await file.read()
     buf = io.BytesIO(content)
+
+    _send_progress_sync(new_session_id, 0.2, "load_project", "Estrazione archivio .serialproj...")
 
     try:
         with zipfile.ZipFile(buf, "r") as zf:
@@ -761,6 +791,8 @@ async def load_project(file: UploadFile = File(...)):
 
     with open(manifest_file, "r") as f:
         manifest = json.load(f)
+
+    _send_progress_sync(new_session_id, 0.5, "load_project", "Ripristino fette audio e matrici...")
 
     # Reconstruct session in memory
     get_or_create_session(new_session_id)
@@ -860,6 +892,8 @@ async def load_project(file: UploadFile = File(...)):
         }
         for item in mat_data.get("prime_row", []):
             item["audio_url"] = f"/api/audio/{new_session_id}/slices/{active_stem}/{item['id']}.wav"
+
+    _send_progress_sync(new_session_id, 1.0, "load_project", "Progetto ripristinato con successo!")
 
     return {
         "session_id": new_session_id,

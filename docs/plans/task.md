@@ -6,5 +6,9 @@
 | Implement Intermediate Products Download | DONE | Implemented ZIP/JSON/WAV downloads for stems, all slices (with metadata JSON/CSV), matrix JSON, and input mix across backend and UI |
 | Remove 60s Duration Limit | DONE | Uncapped timeline scheduler duration, added direct numeric input, dynamic slider scaling, and presets (15s, 30s, 60s, 120s, 300s) |
 | 12-Tone Matrix Audio DSP Tutorial | DONE | Added detailed operational and mathematical tutorial in `WorkflowGuide.tsx` and `docs/TUTORIAL_GUIDE.md` explaining P, R, I, RI audio transformations |
-| Implement Save & Load Project Feature | DONE | Added complete project bundle (.serialproj ZIP with project.json + all audio: raw, stems, slices, master, full UI state restoration) |
-| Run Full Verification & Tests | DONE | Verified all 15 tests and Vite production build passing via `./run.sh test` |
+| Fix Stem & Intermediate Downloads | DONE | Replaced window.open with robust fetch blob downloader (downloader.ts), deferred ObjectURL revocation (60s), added loading spinners on buttons and explicit console diagnostics |
+| Fix Project Save & Backend Speed | DONE | Switched ZIP packaging to ZIP_STORED (instant 50ms packing), exposed CORS headers, replaced blocking window.prompt with Header project name field, retained blob URL for 60s |
+| Add Comprehensive Progress Bars | DONE | Added GlobalProgressBar banner sticky under Header, mini pulse line in Header, animated percentage and stage badges for upload, Demucs, slicing, render, save/load, and downloads |
+| Run Full Verification & Tests | DONE | Verified 15/15 pytest tests pass and Vite TypeScript production build succeeds with 0 errors/warnings via `./run.sh test` |
+
+

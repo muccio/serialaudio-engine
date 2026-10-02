@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Archive, Download, FileJson, Layers } from 'lucide-react';
+import { Archive, Download, FileJson, Layers, Loader2 } from 'lucide-react';
 import { AudioSliceMetadata } from '../types';
 import { api } from '../services/api';
+import { downloadFile } from '../utils/downloader';
 
 interface WaveformViewerProps {
   sessionId?: string | null;
@@ -10,6 +11,7 @@ interface WaveformViewerProps {
   activeStemForMatrix: string;
   onSelectStemForMatrix: (stem: string) => void;
   onPreviewSlice: (slice: AudioSliceMetadata) => void;
+  onTriggerDownload?: (url: string, filename: string) => Promise<void>;
 }
 
 const STEM_COLORS: Record<string, { base: string; wave: string; border: string; bg: string }> = {
@@ -25,10 +27,27 @@ export function WaveformViewer({
   slices,
   activeStemForMatrix,
   onSelectStemForMatrix,
-  onPreviewSlice
+  onPreviewSlice,
+  onTriggerDownload
 }: WaveformViewerProps) {
   const [hoveredSlice, setHoveredSlice] = useState<AudioSliceMetadata | null>(null);
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
   const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
+
+  const handleDownload = async (key: string, url: string, defaultFilename: string) => {
+    try {
+      setDownloadingKey(key);
+      if (onTriggerDownload) {
+        await onTriggerDownload(url, defaultFilename);
+      } else {
+        await downloadFile({ url, defaultFilename });
+      }
+    } catch (err: any) {
+      console.error(`Download ${defaultFilename} failed:`, err);
+    } finally {
+      setDownloadingKey(null);
+    }
+  };
 
   // Compute maximum duration across all slices
   let maxTime = 1.0;
@@ -161,33 +180,48 @@ export function WaveformViewer({
         <div className="flex items-center space-x-2 text-xs font-mono flex-wrap gap-y-1">
           {sessionId && stemKeys.length > 0 && (
             <button
-              onClick={() => window.open(api.getStemsZipDownloadUrl(sessionId), '_blank')}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm"
+              onClick={() => handleDownload('stems-zip', api.getStemsZipDownloadUrl(sessionId), `stems_${sessionId.slice(0, 8)}.zip`)}
+              disabled={downloadingKey === 'stems-zip'}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm disabled:opacity-50"
               title="Scarica tutti e 4 gli stem (drums, bass, other, vocals) in archivio ZIP"
             >
-              <Archive className="w-3.5 h-3.5 text-rose-400" />
-              <span>Stems (ZIP)</span>
+              {downloadingKey === 'stems-zip' ? (
+                <Loader2 className="w-3.5 h-3.5 text-rose-400 animate-spin" />
+              ) : (
+                <Archive className="w-3.5 h-3.5 text-rose-400" />
+              )}
+              <span>{downloadingKey === 'stems-zip' ? 'Downloading...' : 'Stems (ZIP)'}</span>
             </button>
           )}
 
           {sessionId && Object.values(slices).some((l) => l.length > 0) && (
             <>
               <button
-                onClick={() => window.open(api.getSlicesZipDownloadUrl(sessionId), '_blank')}
-                className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm"
+                onClick={() => handleDownload('slices-zip', api.getSlicesZipDownloadUrl(sessionId), `slices_all_${sessionId.slice(0, 8)}.zip`)}
+                disabled={downloadingKey === 'slices-zip'}
+                className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm disabled:opacity-50"
                 title="Scarica tutte le fette audio (WAV) + metadati JSON/CSV in archivio ZIP"
               >
-                <Archive className="w-3.5 h-3.5 text-cyan-400" />
-                <span>All Slices (ZIP)</span>
+                {downloadingKey === 'slices-zip' ? (
+                  <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                ) : (
+                  <Archive className="w-3.5 h-3.5 text-cyan-400" />
+                )}
+                <span>{downloadingKey === 'slices-zip' ? 'Downloading...' : 'All Slices (ZIP)'}</span>
               </button>
 
               <button
-                onClick={() => window.open(api.getSlicesMetaDownloadUrl(sessionId), '_blank')}
-                className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm"
+                onClick={() => handleDownload('meta-json', api.getSlicesMetaDownloadUrl(sessionId), `slices_metadata_${sessionId.slice(0, 8)}.json`)}
+                disabled={downloadingKey === 'meta-json'}
+                className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white transition shadow-sm disabled:opacity-50"
                 title="Scarica il file metadati JSON delle fette"
               >
-                <FileJson className="w-3.5 h-3.5 text-amber-400" />
-                <span>Metadata (JSON)</span>
+                {downloadingKey === 'meta-json' ? (
+                  <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                ) : (
+                  <FileJson className="w-3.5 h-3.5 text-amber-400" />
+                )}
+                <span>{downloadingKey === 'meta-json' ? 'Downloading...' : 'Metadata (JSON)'}</span>
               </button>
             </>
           )}
@@ -202,11 +236,16 @@ export function WaveformViewer({
               <span> {hoveredSlice.spectral_centroid} Hz</span>
               {sessionId && (
                 <button
-                  onClick={() => window.open(api.getSliceDownloadUrl(sessionId, hoveredSlice.stem_source, hoveredSlice.id), '_blank')}
-                  className="p-0.5 hover:text-white text-slate-400 ml-1"
+                  onClick={() => handleDownload(`slice-${hoveredSlice.id}`, api.getSliceDownloadUrl(sessionId, hoveredSlice.stem_source, hoveredSlice.id), `${hoveredSlice.id}.wav`)}
+                  disabled={downloadingKey === `slice-${hoveredSlice.id}`}
+                  className="p-0.5 hover:text-white text-slate-400 ml-1 disabled:opacity-50"
                   title="Scarica questo singolo slice WAV"
                 >
-                  <Download className="w-3 h-3 text-emerald-400" />
+                  {downloadingKey === `slice-${hoveredSlice.id}` ? (
+                    <Loader2 className="w-3 h-3 text-emerald-400 animate-spin" />
+                  ) : (
+                    <Download className="w-3 h-3 text-emerald-400" />
+                  )}
                 </button>
               )}
             </div>
@@ -247,23 +286,33 @@ export function WaveformViewer({
                   <div className="flex items-center space-x-1.5">
                     {sessionId && (
                       <button
-                        onClick={() => window.open(api.getStemDownloadUrl(sessionId, stem), '_blank')}
-                        className="flex items-center space-x-1 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
+                        onClick={() => handleDownload(`stem-${stem}`, api.getStemDownloadUrl(sessionId, stem), `${stem}.wav`)}
+                        disabled={downloadingKey === `stem-${stem}`}
+                        className="flex items-center space-x-1 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-50"
                         title={`Scarica ${stem}.wav`}
                       >
-                        <Download className="w-3 h-3 text-indigo-400" />
-                        <span>WAV</span>
+                        {downloadingKey === `stem-${stem}` ? (
+                          <Loader2 className="w-3 h-3 text-indigo-400 animate-spin" />
+                        ) : (
+                          <Download className="w-3 h-3 text-indigo-400" />
+                        )}
+                        <span>{downloadingKey === `stem-${stem}` ? 'Downloading...' : 'WAV'}</span>
                       </button>
                     )}
 
                     {sessionId && stemSlices.length > 0 && (
                       <button
-                        onClick={() => window.open(api.getSlicesZipDownloadUrl(sessionId, stem), '_blank')}
-                        className="flex items-center space-x-1 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
+                        onClick={() => handleDownload(`slices-${stem}`, api.getSlicesZipDownloadUrl(sessionId, stem), `slices_${stem}_${sessionId.slice(0, 8)}.zip`)}
+                        disabled={downloadingKey === `slices-${stem}`}
+                        className="flex items-center space-x-1 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-50"
                         title={`Scarica le ${stemSlices.length} fette di ${stem} in ZIP`}
                       >
-                        <Archive className="w-3 h-3 text-cyan-400" />
-                        <span>ZIP</span>
+                        {downloadingKey === `slices-${stem}` ? (
+                          <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />
+                        ) : (
+                          <Archive className="w-3 h-3 text-cyan-400" />
+                        )}
+                        <span>{downloadingKey === `slices-${stem}` ? 'Downloading...' : 'ZIP'}</span>
                       </button>
                     )}
 

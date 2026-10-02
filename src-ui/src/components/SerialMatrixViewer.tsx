@@ -1,7 +1,8 @@
-import { Fragment } from 'react';
-import { Archive, FileJson, Grid, Sparkles, Wand2 } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { Archive, FileJson, Grid, Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { MatrixMetadata, TransformationForm } from '../types';
 import { api } from '../services/api';
+import { downloadFile } from '../utils/downloader';
 
 interface SerialMatrixViewerProps {
   sessionId?: string | null;
@@ -17,6 +18,7 @@ interface SerialMatrixViewerProps {
   availableStems?: string[];
   slicesCountByStem?: Record<string, number>;
   onForceGenerateMatrix?: () => void;
+  onTriggerDownload?: (url: string, filename: string) => Promise<void>;
 }
 
 const PITCH_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -41,8 +43,25 @@ export function SerialMatrixViewer({
   onSelectStem,
   availableStems = ['drums', 'bass', 'other', 'vocals'],
   slicesCountByStem = {},
-  onForceGenerateMatrix
+  onForceGenerateMatrix,
+  onTriggerDownload
 }: SerialMatrixViewerProps) {
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
+
+  const handleDownload = async (key: string, url: string, defaultFilename: string) => {
+    try {
+      setDownloadingKey(key);
+      if (onTriggerDownload) {
+        await onTriggerDownload(url, defaultFilename);
+      } else {
+        await downloadFile({ url, defaultFilename });
+      }
+    } catch (err: any) {
+      console.error(`Download ${defaultFilename} failed:`, err);
+    } finally {
+      setDownloadingKey(null);
+    }
+  };
   return (
     <div className="bg-surface border border-surfaceBorder rounded-xl p-5 shadow-lg space-y-4">
       {/* Header bar */}
@@ -131,21 +150,31 @@ export function SerialMatrixViewer({
             {sessionId && (
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={() => window.open(api.getMatrixJsonDownloadUrl(sessionId, activeStem), '_blank')}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition shadow-sm"
+                  onClick={() => handleDownload('matrix-json', api.getMatrixJsonDownloadUrl(sessionId, activeStem), `serial_matrix_${activeStem}.json`)}
+                  disabled={downloadingKey === 'matrix-json'}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition shadow-sm disabled:opacity-50"
                   title="Esporta la matrice di Babbitt 12x12 e le note come file JSON"
                 >
-                  <FileJson className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Export Matrix (JSON)</span>
+                  {downloadingKey === 'matrix-json' ? (
+                    <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                  ) : (
+                    <FileJson className="w-3.5 h-3.5 text-amber-400" />
+                  )}
+                  <span>{downloadingKey === 'matrix-json' ? 'Downloading...' : 'Export Matrix (JSON)'}</span>
                 </button>
 
                 <button
-                  onClick={() => window.open(api.getSlicesZipDownloadUrl(sessionId, activeStem), '_blank')}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition shadow-sm"
+                  onClick={() => handleDownload('matrix-slices-zip', api.getSlicesZipDownloadUrl(sessionId, activeStem), `slices_${activeStem}_${sessionId.slice(0, 8)}.zip`)}
+                  disabled={downloadingKey === 'matrix-slices-zip'}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition shadow-sm disabled:opacity-50"
                   title={`Scarica le fette dello stem ${activeStem} in archivio ZIP`}
                 >
-                  <Archive className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>{activeStem} Slices (ZIP)</span>
+                  {downloadingKey === 'matrix-slices-zip' ? (
+                    <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                  ) : (
+                    <Archive className="w-3.5 h-3.5 text-cyan-400" />
+                  )}
+                  <span>{downloadingKey === 'matrix-slices-zip' ? 'Downloading...' : `${activeStem} Slices (ZIP)`}</span>
                 </button>
               </div>
             )}

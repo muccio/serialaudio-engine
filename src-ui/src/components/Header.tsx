@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Activity, Download, FolderOpen, Play, Save, Square } from 'lucide-react';
+import { Activity, Download, FolderOpen, Loader2, Play, Save, Square } from 'lucide-react';
 
 interface HeaderProps {
   isBackendConnected: boolean;
@@ -16,6 +16,9 @@ interface HeaderProps {
   onLoadProjectFile: (file: File) => void;
   isSavingProject?: boolean;
   isLoadingProject?: boolean;
+  projectName?: string;
+  setProjectName?: (name: string) => void;
+  isBusy?: boolean;
 }
 
 export function Header({
@@ -32,7 +35,10 @@ export function Header({
   onSaveProject,
   onLoadProjectFile,
   isSavingProject = false,
-  isLoadingProject = false
+  isLoadingProject = false,
+  projectName = 'SerialAudio_Project',
+  setProjectName,
+  isBusy = false
 }: HeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   return (
@@ -76,13 +82,28 @@ export function Header({
             className="hidden"
           />
 
+          {setProjectName && (
+            <input
+              type="text"
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="Nome Progetto"
+              className="w-36 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500"
+              title="Nome del progetto da salvare"
+            />
+          )}
+
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={!isBackendConnected || isLoadingProject}
             title="Carica un progetto completo (.serialproj)"
             className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition active:scale-95 disabled:opacity-40"
           >
-            <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
+            {isLoadingProject ? (
+              <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+            ) : (
+              <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
+            )}
             <span>{isLoadingProject ? 'Loading...' : 'Load Proj'}</span>
           </button>
 
@@ -92,7 +113,11 @@ export function Header({
             title="Salva l'intero progetto (.serialproj con tutti gli step, stem, slice, matrice e timeline)"
             className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs font-mono transition active:scale-95 disabled:opacity-40"
           >
-            <Save className="w-3.5 h-3.5 text-indigo-400" />
+            {isSavingProject ? (
+              <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5 text-indigo-400" />
+            )}
             <span>{isSavingProject ? 'Saving...' : 'Save Proj'}</span>
           </button>
         </div>
@@ -145,6 +170,11 @@ export function Header({
           <span>Export WAV</span>
         </button>
       </div>
+
+      {/* Busy bottom border indicator */}
+      {isBusy && (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-400 animate-pulse" />
+      )}
     </header>
   );
 }

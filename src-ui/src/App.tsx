@@ -5,7 +5,9 @@ import { WaveformViewer } from './components/WaveformViewer';
 import { SerialMatrixViewer } from './components/SerialMatrixViewer';
 import { TimelineCanvas } from './components/TimelineCanvas';
 import { WorkflowGuide } from './components/WorkflowGuide';
+import { GlobalProgressBar, GlobalProgressState } from './components/GlobalProgressBar';
 import { api } from './services/api';
+import { downloadFile } from './utils/downloader';
 import {
   AudioSliceMetadata,
   DensityPoint,
@@ -51,6 +53,12 @@ export default function App() {
   const [isLoadingProject, setIsLoadingProject] = useState<boolean>(false);
   const [projectName, setProjectName] = useState<string>("SerialAudio_Project");
   const [progress, setProgress] = useState<WebSocketProgressPayload | null>(null);
+  const [globalProgress, setGlobalProgress] = useState<GlobalProgressState>({
+    isActive: false,
+    stage: 'idle',
+    progress: 0,
+    message: ''
+  });
   const [renderResult, setRenderResult] = useState<RenderResult | null>(null);
 
   // Audio Playback
@@ -72,8 +80,18 @@ export default function App() {
           ws = api.createWebSocket((msg: WebSocketProgressPayload) => {
             if (msg.progress !== undefined) {
               setProgress(msg);
+              setGlobalProgress({
+                isActive: msg.progress < 1.0,
+                stage: msg.stage,
+                progress: msg.progress,
+                message: msg.message,
+                isComplete: msg.progress >= 1.0
+              });
               if (msg.progress >= 1.0) {
-                setTimeout(() => setIsProcessing(false), 800);
+                setTimeout(() => {
+                  setIsProcessing(false);
+                  setGlobalProgress(prev => ({ ...prev, isComplete: false, isActive: false }));
+                }, 1800);
               }
             }
           });
@@ -91,6 +109,49 @@ export default function App() {
       if (ws) ws.close();
     };
   }, []);
+
+  const triggerDownloadWithProgress = async (url: string, defaultFilename: string) => {
+    setGlobalProgress({
+      isActive: true,
+      stage: 'download',
+      progress: 0.1,
+      message: `Avvio download di ${defaultFilename}...`
+    });
+    try {
+      await downloadFile({
+        url,
+        defaultFilename,
+        onProgress: (pct, msg) => {
+          setGlobalProgress({
+            isActive: true,
+            stage: 'download',
+            progress: pct / 100,
+            message: msg
+          });
+        },
+        onSuccess: (filename) => {
+          setGlobalProgress({
+            isActive: false,
+            stage: 'download',
+            progress: 1.0,
+            message: `Download completato: ${filename}`,
+            isComplete: true
+          });
+          setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2500);
+        },
+        onError: (err) => {
+          setGlobalProgress({
+            isActive: false,
+            stage: 'download',
+            progress: 0,
+            message: `Errore download: ${err.message}`
+          });
+        }
+      });
+    } catch (err: any) {
+      alert(`Errore download: ${err.message}`);
+    }
+  };
 
   const totalSlices = Object.values(slices).reduce((acc, list) => acc + list.length, 0);
 
@@ -131,13 +192,19 @@ export default function App() {
   const handleLoadDemo = async () => {
     try {
       setIsProcessing(true);
-      setProgress({ session_id: '', progress: 0.1, stage: 'demo', message: 'Synthesizing Sebastian\'s Dance motifs...' });
+      const startMsg = { session_id: '', progress: 0.1, stage: 'demo_generation', message: "Sintesi dei motivi orchestrali di Menotti 'Sebastian's Dance'..." };
+      setProgress(startMsg);
+      setGlobalProgress({ isActive: true, stage: 'demo_generation', progress: 0.1, message: startMsg.message });
+
       const demo = await api.generateDemo(8.0);
       setSessionId(demo.session_id);
       setStems(demo.stems);
 
       // Auto trigger slice detection
-      setProgress({ session_id: demo.session_id, progress: 0.5, stage: 'slicing', message: 'Running MIR transient detector on 4 stems...' });
+      const sliceMsg = { session_id: demo.session_id, progress: 0.5, stage: 'slicing', message: 'Rilevamento transienti MIR su 4 stem in corso...' };
+      setProgress(sliceMsg);
+      setGlobalProgress({ isActive: true, stage: 'slicing', progress: 0.5, message: sliceMsg.message });
+
       const sliceRes = await api.sliceEvents({
         sessionId: demo.session_id,
         method: 'spectral_flux',
@@ -152,26 +219,46 @@ export default function App() {
       const mat = await api.getMatrix(demo.session_id, 'other');
       setMatrixData(mat);
       setActiveStemForMatrix('other');
+
       setIsProcessing(false);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'demo_generation',
+        progress: 1.0,
+        message: 'Demo caricata e analizzata con successo!',
+        isComplete: true
+      });
+      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2000);
     } catch (err: any) {
       alert(`Error loading demo: ${err.message}`);
       setIsProcessing(false);
+      setGlobalProgress({ isActive: false, stage: 'error', progress: 0, message: `Errore demo: ${err.message}` });
     }
   };
 
   const handleFileUpload = async (file: File) => {
     try {
       setIsProcessing(true);
-      setProgress({ session_id: '', progress: 0.05, stage: 'upload', message: `Uploading ${file.name}...` });
+      const upMsg = { session_id: '', progress: 0.05, stage: 'upload', message: `Caricamento di ${file.name}...` };
+      setProgress(upMsg);
+      setGlobalProgress({ isActive: true, stage: 'upload', progress: 0.05, message: upMsg.message });
+
       const uploadRes = await api.uploadAudio(file);
       setSessionId(uploadRes.session_id);
 
       // Trigger Demucs separation
-      setProgress({ session_id: uploadRes.session_id, progress: 0.25, stage: 'separation', message: 'Running Demucs neural stem separation...' });
+      const sepMsg = { session_id: uploadRes.session_id, progress: 0.25, stage: 'separation', message: 'Separazione neurale Demucs v4 (drums, bass, other, vocals)...' };
+      setProgress(sepMsg);
+      setGlobalProgress({ isActive: true, stage: 'separation', progress: 0.25, message: sepMsg.message });
+
       const sepRes = await api.separateStems(uploadRes.session_id);
       setStems(sepRes.stems);
 
       // Trigger Slicing
+      const slMsg = { session_id: uploadRes.session_id, progress: 0.65, stage: 'slicing', message: 'Rilevamento transienti MIR e stima altezza pYIN...' };
+      setProgress(slMsg);
+      setGlobalProgress({ isActive: true, stage: 'slicing', progress: 0.65, message: slMsg.message });
+
       const sliceRes = await api.sliceEvents({
         sessionId: uploadRes.session_id,
         method: 'spectral_flux',
@@ -185,10 +272,20 @@ export default function App() {
       const mat = await api.getMatrix(uploadRes.session_id, 'other');
       setMatrixData(mat);
       setActiveStemForMatrix('other');
+
       setIsProcessing(false);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'separation',
+        progress: 1.0,
+        message: `${file.name} elaborato con successo!`,
+        isComplete: true
+      });
+      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2000);
     } catch (err: any) {
       alert(`Error processing file: ${err.message}`);
       setIsProcessing(false);
+      setGlobalProgress({ isActive: false, stage: 'error', progress: 0, message: `Errore caricamento: ${err.message}` });
     }
   };
 
@@ -284,6 +381,13 @@ export default function App() {
     if (!sessionId) return;
     try {
       setIsRendering(true);
+      setGlobalProgress({
+        isActive: true,
+        stage: 'rendering',
+        progress: 0.25,
+        message: 'Sintesi algoritmica 12-tone su timeline in corso...'
+      });
+
       const res = await api.renderTimeline({
         sessionId,
         targetDurationSec,
@@ -297,6 +401,15 @@ export default function App() {
       setRenderResult(res);
       setIsRendering(false);
 
+      setGlobalProgress({
+        isActive: false,
+        stage: 'rendering',
+        progress: 1.0,
+        message: `Mixdown completato (${res.event_count} eventi generati, ${res.duration_sec}s)!`,
+        isComplete: true
+      });
+      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2500);
+
       // Load into master audio player
       if (audioPlayerRef.current) {
         audioPlayerRef.current.src = api.getAudioUrl(res.master_url);
@@ -305,6 +418,12 @@ export default function App() {
     } catch (err: any) {
       alert(`Render error: ${err.message}`);
       setIsRendering(false);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'error',
+        progress: 0,
+        message: `Errore render: ${err.message}`
+      });
     }
   };
 
@@ -319,9 +438,10 @@ export default function App() {
     }
   };
 
-  const handleExportMaster = () => {
+  const handleExportMaster = async () => {
     if (!renderResult || !sessionId) return;
-    window.open(api.getAudioUrl(renderResult.export_url), '_blank');
+    const filename = `serialaudio_master_${renderResult.session_id.slice(0, 8)}.wav`;
+    await triggerDownloadWithProgress(api.getAudioUrl(renderResult.export_url), filename);
   };
 
   const handleSaveProject = async () => {
@@ -329,11 +449,19 @@ export default function App() {
       alert("Nessun progetto o sessione attiva da salvare. Carica o crea prima una traccia.");
       return;
     }
-    const name = prompt("Inserisci il nome del progetto da salvare:", projectName) || projectName;
-    setProjectName(name);
+    const name = projectName.trim() || 'SerialAudio_Project';
+    const cleanName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
 
     try {
       setIsSavingProject(true);
+      console.log(`[SerialAudio App] Starting save for project "${name}" (session: ${sessionId})`);
+      setGlobalProgress({
+        isActive: true,
+        stage: 'save_project',
+        progress: 0.2,
+        message: `Preparazione pacchetto ${cleanName}.serialproj...`
+      });
+
       const blob = await api.saveProject({
         sessionId,
         projectName: name,
@@ -350,26 +478,61 @@ export default function App() {
         }
       });
 
-      const cleanName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      console.log(`[SerialAudio App] Received project blob: ${blob.size} bytes`);
+      setGlobalProgress({
+        isActive: true,
+        stage: 'save_project',
+        progress: 0.85,
+        message: `Download di ${cleanName}.serialproj (${(blob.size / (1024 * 1024)).toFixed(2)} MB)...`
+      });
+
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
+      a.style.display = 'none';
       a.href = url;
       a.download = `${cleanName}.serialproj`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+
+      // CRITICAL: Keep object URL alive for 60 seconds
+      setTimeout(() => {
+        if (document.body.contains(a)) document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        console.log(`[SerialAudio App] Cleaned up temporary blob URL for ${cleanName}.serialproj`);
+      }, 60000);
+
       setIsSavingProject(false);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'save_project',
+        progress: 1.0,
+        message: `Progetto "${cleanName}.serialproj" scaricato con successo!`,
+        isComplete: true
+      });
+      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2500);
     } catch (err: any) {
+      console.error('[SerialAudio App] Save project failed:', err);
       alert(`Errore salvataggio progetto: ${err.message}`);
       setIsSavingProject(false);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'error',
+        progress: 0,
+        message: `Errore salvataggio: ${err.message}`
+      });
     }
   };
 
   const handleLoadProjectFile = async (file: File) => {
     try {
       setIsLoadingProject(true);
-      setProgress({ session_id: '', progress: 0.2, stage: 'project_load', message: `Caricamento progetto ${file.name}...` });
+      console.log(`[SerialAudio App] Loading project file: ${file.name}`);
+      setGlobalProgress({
+        isActive: true,
+        stage: 'load_project',
+        progress: 0.2,
+        message: `Caricamento progetto ${file.name} in memoria...`
+      });
 
       const loaded = await api.loadProject(file);
 
@@ -409,11 +572,24 @@ export default function App() {
       }
 
       setIsLoadingProject(false);
-      setProgress(null);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'load_project',
+        progress: 1.0,
+        message: `Progetto "${file.name}" caricato con successo!`,
+        isComplete: true
+      });
+      setTimeout(() => setGlobalProgress(prev => ({ ...prev, isComplete: false })), 2500);
     } catch (err: any) {
+      console.error('[SerialAudio App] Load project error:', err);
       alert(`Errore caricamento progetto: ${err.message}`);
       setIsLoadingProject(false);
-      setProgress(null);
+      setGlobalProgress({
+        isActive: false,
+        stage: 'error',
+        progress: 0,
+        message: `Errore caricamento: ${err.message}`
+      });
     }
   };
 
@@ -438,6 +614,15 @@ export default function App() {
         onLoadProjectFile={handleLoadProjectFile}
         isSavingProject={isSavingProject}
         isLoadingProject={isLoadingProject}
+        projectName={projectName}
+        setProjectName={setProjectName}
+        isBusy={isProcessing || isRendering || isSavingProject || isLoadingProject || globalProgress.isActive}
+      />
+
+      {/* Global Real-Time Multi-Operation Progress Bar */}
+      <GlobalProgressBar
+        state={globalProgress}
+        onDismiss={() => setGlobalProgress(prev => ({ ...prev, isComplete: false, isActive: false }))}
       />
 
       {/* Main DAW Workspace Layout */}
@@ -458,6 +643,7 @@ export default function App() {
           onFileUpload={handleFileUpload}
           onLoadDemo={handleLoadDemo}
           onDetectSlices={handleDetectSlices}
+          onTriggerDownload={triggerDownloadWithProgress}
           isProcessing={isProcessing}
           progress={progress}
           hasAudio={!!sessionId}
@@ -474,6 +660,7 @@ export default function App() {
           activeStemForMatrix={activeStemForMatrix}
           onSelectStemForMatrix={handleSelectStemForMatrix}
           onPreviewSlice={handlePreviewSlice}
+          onTriggerDownload={triggerDownloadWithProgress}
         />
 
         {/* Module 3: 12-Tone Serial Matrix & DSP Permutations */}
@@ -493,6 +680,7 @@ export default function App() {
             (Object.keys(stems).length > 0 ? Object.keys(stems) : ['drums', 'bass', 'other', 'vocals']).map(k => [k, slices[k]?.length || 0])
           )}
           onForceGenerateMatrix={handleForceGenerateMatrix}
+          onTriggerDownload={triggerDownloadWithProgress}
         />
 
         {/* Module 4: Timeline Automation & Density Mixdown Generator */}
